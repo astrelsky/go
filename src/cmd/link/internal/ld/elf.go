@@ -2140,7 +2140,7 @@ func asmbElf(ctxt *Link) {
 		}
 	}
 
-	if ctxt.HeadType == objabi.Hlinux || ctxt.HeadType == objabi.Hfreebsd {
+	if ctxt.HeadType == objabi.Hlinux || ctxt.HeadType == objabi.Hfreebsd || ctxt.HeadType == objabi.Hprospero {
 		ph := newElfPhdr()
 		ph.Type = elf.PT_GNU_STACK
 		ph.Flags = elf.PF_W + elf.PF_R
@@ -2246,7 +2246,7 @@ elfobj:
 
 	var osabi elf.OSABI
 	switch ctxt.HeadType {
-	case objabi.Hfreebsd:
+	case objabi.Hfreebsd, objabi.Hprospero:
 		osabi = elf.ELFOSABI_FREEBSD
 	case objabi.Hnetbsd:
 		osabi = elf.ELFOSABI_NETBSD

@@ -1940,6 +1940,9 @@ func (ctxt *Context) matchTag(name string, allTags map[string]bool) bool {
 	if ctxt.GOOS == "ios" && name == "darwin" {
 		return true
 	}
+	if ctxt.GOOS == "prospero" && name == "freebsd" {
+		return true
+	}
 	if name == "unix" && unixOS[ctxt.GOOS] {
 		return true
 	}

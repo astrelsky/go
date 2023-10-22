@@ -6,7 +6,7 @@
 // /usr/src/sys/kern/syscalls.master for syscall numbers.
 //
 
-//go:build !prospero
+//go:build prospero
 
 #include "go_asm.h"
 #include "go_tls.h"
@@ -37,6 +37,7 @@
 #define SYS_sched_yield		331
 #define SYS_sigprocmask		340
 #define SYS_kqueue		362
+#define SYS_kevent		363
 #define SYS_sigaction		416
 #define SYS_thr_exit		431
 #define SYS_thr_self		432
@@ -45,8 +46,7 @@
 #define SYS_thr_new		455
 #define SYS_mmap		477
 #define SYS_cpuset_getaffinity	487
-#define SYS_pipe2 		542
-#define SYS_kevent		560
+#define SYS_pipe2 		687
 
 TEXT runtime·sys_umtx_op(SB),NOSPLIT,$0
 	MOVQ addr+0(FP), DI
@@ -55,8 +55,11 @@ TEXT runtime·sys_umtx_op(SB),NOSPLIT,$0
 	MOVQ uaddr1+16(FP), R10
 	MOVQ ut+24(FP), R8
 	MOVL $SYS__umtx_op, AX
-	SYSCALL
-	JCC	2(PC)
+	MOVQ	runtime·psyscall_addr(SB), R12
+	CALL	R12
+	TESTQ	AX, AX
+	JNS	3(PC)
+	MOVQ	CX, AX
 	NEGQ	AX
 	MOVL	AX, ret+32(FP)
 	RET
@@ -65,8 +68,11 @@ TEXT runtime·thr_new(SB),NOSPLIT,$0
 	MOVQ param+0(FP), DI
 	MOVL size+8(FP), SI
 	MOVL $SYS_thr_new, AX
-	SYSCALL
-	JCC	2(PC)
+	MOVQ	runtime·psyscall_addr(SB), R12
+	CALL	R12
+	TESTQ	AX, AX
+	JNS	3(PC)
+	MOVQ	CX, AX
 	NEGQ	AX
 	MOVL	AX, ret+16(FP)
 	RET
@@ -89,12 +95,23 @@ TEXT runtime·thr_start(SB),NOSPLIT,$0
 
 	MOVQ 0, AX			// crash (not reached)
 
+
+DATA sleepbuf<>+0x00(SB)/8, $0
+DATA sleepbuf<>+0x08(SB)/8, $0
+GLOBL sleepbuf<>(SB), (NOPTR), $16
+
 // Exit the entire program (like C exit)
 TEXT runtime·exit(SB),NOSPLIT,$-8
 	MOVL	code+0(FP), DI		// arg 1 exit status
-	MOVL	$SYS_exit, AX
-	SYSCALL
-	MOVL	$0xf1, 0xf1  // crash
+	MOVQ	$SYS_getpid, AX
+	MOVQ	runtime·psyscall_addr(SB), R12
+	CALL	R12
+	MOVQ	AX, DI
+	MOVQ	$9, SI
+	MOVQ	$SYS_kill, AX
+	MOVQ	runtime·psyscall_addr(SB), R12
+	CALL	R12
+	UD2
 	RET
 
 // func exitThread(wait *atomic.uint32)
@@ -103,8 +120,9 @@ TEXT runtime·exitThread(SB),NOSPLIT,$0-8
 	// We're done using the stack.
 	MOVL	$0, (AX)
 	MOVL	$0, DI		// arg 1 long *state
-	MOVL	$SYS_thr_exit, AX
-	SYSCALL
+	MOVQ	$SYS_thr_exit, AX
+	MOVQ	runtime·psyscall_addr(SB), R12
+	CALL	R12
 	MOVL	$0xf1, 0xf1  // crash
 	JMP	0(PC)
 
@@ -112,18 +130,22 @@ TEXT runtime·open(SB),NOSPLIT,$-8
 	MOVQ	name+0(FP), DI		// arg 1 pathname
 	MOVL	mode+8(FP), SI		// arg 2 flags
 	MOVL	perm+12(FP), DX		// arg 3 mode
-	MOVL	$SYS_open, AX
-	SYSCALL
-	JCC	2(PC)
+	MOVQ	$SYS_open, AX
+	MOVQ	runtime·psyscall_addr(SB), R12
+	CALL	R12
+	TESTQ	AX, AX
+	JNS	2(PC)
 	MOVL	$-1, AX
 	MOVL	AX, ret+16(FP)
 	RET
 
 TEXT runtime·closefd(SB),NOSPLIT,$-8
 	MOVL	fd+0(FP), DI		// arg 1 fd
-	MOVL	$SYS_close, AX
-	SYSCALL
-	JCC	2(PC)
+	MOVQ	$SYS_close, AX
+	MOVQ	runtime·psyscall_addr(SB), R12
+	CALL	R12
+	TESTQ	AX, AX
+	JNS	2(PC)
 	MOVL	$-1, AX
 	MOVL	AX, ret+8(FP)
 	RET
@@ -132,9 +154,12 @@ TEXT runtime·read(SB),NOSPLIT,$-8
 	MOVL	fd+0(FP), DI		// arg 1 fd
 	MOVQ	p+8(FP), SI		// arg 2 buf
 	MOVL	n+16(FP), DX		// arg 3 count
-	MOVL	$SYS_read, AX
-	SYSCALL
-	JCC	2(PC)
+	MOVQ	$SYS_read, AX
+	MOVQ	runtime·psyscall_addr(SB), R12
+	CALL	R12
+	TESTQ	AX, AX
+	JNS	3(PC)
+	MOVQ	CX, AX
 	NEGQ	AX			// caller expects negative errno
 	MOVL	AX, ret+24(FP)
 	RET
@@ -143,9 +168,12 @@ TEXT runtime·read(SB),NOSPLIT,$-8
 TEXT runtime·pipe2(SB),NOSPLIT,$0-20
 	LEAQ	r+8(FP), DI
 	MOVL	flags+0(FP), SI
-	MOVL	$SYS_pipe2, AX
-	SYSCALL
-	JCC	2(PC)
+	MOVQ	$SYS_pipe2, AX
+	MOVQ	runtime·psyscall_addr(SB), R12
+	CALL	R12
+	TESTQ	AX, AX
+	JNS	3(PC)
+	MOVQ	CX, AX
 	NEGQ	AX
 	MOVL	AX, errno+16(FP)
 	RET
@@ -154,9 +182,12 @@ TEXT runtime·write1(SB),NOSPLIT,$-8
 	MOVQ	fd+0(FP), DI		// arg 1 fd
 	MOVQ	p+8(FP), SI		// arg 2 buf
 	MOVL	n+16(FP), DX		// arg 3 count
-	MOVL	$SYS_write, AX
-	SYSCALL
-	JCC	2(PC)
+	MOVQ	$SYS_write, AX
+	MOVQ	runtime·psyscall_addr(SB), R12
+	CALL	R12
+	TESTQ	AX, AX
+	JNS	3(PC)
+	MOVQ	CX, AX
 	NEGQ	AX			// caller expects negative errno
 	MOVL	AX, ret+24(FP)
 	RET
@@ -164,43 +195,49 @@ TEXT runtime·write1(SB),NOSPLIT,$-8
 TEXT runtime·thr_self(SB),NOSPLIT,$0-8
 	// thr_self(&0(FP))
 	LEAQ	ret+0(FP), DI	// arg 1
-	MOVL	$SYS_thr_self, AX
-	SYSCALL
+	MOVQ	$SYS_thr_self, AX
+	MOVQ	runtime·psyscall_addr(SB), R12
+	CALL	R12
 	RET
 
 TEXT runtime·thr_kill(SB),NOSPLIT,$0-16
 	// thr_kill(tid, sig)
 	MOVQ	tid+0(FP), DI	// arg 1 id
 	MOVQ	sig+8(FP), SI	// arg 2 sig
-	MOVL	$SYS_thr_kill, AX
-	SYSCALL
+	MOVQ	$SYS_thr_kill, AX
+	MOVQ	runtime·psyscall_addr(SB), R12
+	CALL	R12
 	RET
 
 TEXT runtime·raiseproc(SB),NOSPLIT,$0
 	// getpid
-	MOVL	$SYS_getpid, AX
-	SYSCALL
+	MOVQ	$SYS_getpid, AX
+	MOVQ	runtime·psyscall_addr(SB), R12
+	CALL	R12
 	// kill(self, sig)
 	MOVQ	AX, DI		// arg 1 pid
 	MOVL	sig+0(FP), SI	// arg 2 sig
-	MOVL	$SYS_kill, AX
-	SYSCALL
+	MOVQ	$SYS_kill, AX
+	MOVQ	runtime·psyscall_addr(SB), R12
+	CALL	R12
 	RET
 
 TEXT runtime·setitimer(SB), NOSPLIT, $-8
 	MOVL	mode+0(FP), DI
 	MOVQ	new+8(FP), SI
 	MOVQ	old+16(FP), DX
-	MOVL	$SYS_setitimer, AX
-	SYSCALL
+	MOVQ	$SYS_setitimer, AX
+	MOVQ	runtime·psyscall_addr(SB), R12
+	CALL	R12
 	RET
 
 // func fallback_walltime() (sec int64, nsec int32)
 TEXT runtime·fallback_walltime(SB), NOSPLIT, $32-12
-	MOVL	$SYS_clock_gettime, AX
+	MOVQ	$SYS_clock_gettime, AX
 	MOVQ	$CLOCK_REALTIME, DI
 	LEAQ	8(SP), SI
-	SYSCALL
+	MOVQ	runtime·psyscall_addr(SB), R12
+	CALL	R12
 	MOVQ	8(SP), AX	// sec
 	MOVQ	16(SP), DX	// nsec
 
@@ -210,10 +247,11 @@ TEXT runtime·fallback_walltime(SB), NOSPLIT, $32-12
 	RET
 
 TEXT runtime·fallback_nanotime(SB), NOSPLIT, $32-8
-	MOVL	$SYS_clock_gettime, AX
+	MOVQ	$SYS_clock_gettime, AX
 	MOVQ	$CLOCK_MONOTONIC, DI
 	LEAQ	8(SP), SI
-	SYSCALL
+	MOVQ	runtime·psyscall_addr(SB), R12
+	CALL	R12
 	MOVQ	8(SP), AX	// sec
 	MOVQ	16(SP), DX	// nsec
 
@@ -228,9 +266,11 @@ TEXT runtime·asmSigaction(SB),NOSPLIT,$0
 	MOVQ	sig+0(FP), DI		// arg 1 sig
 	MOVQ	new+8(FP), SI		// arg 2 act
 	MOVQ	old+16(FP), DX		// arg 3 oact
-	MOVL	$SYS_sigaction, AX
-	SYSCALL
-	JCC	2(PC)
+	MOVQ	$SYS_sigaction, AX
+	MOVQ	runtime·psyscall_addr(SB), R12
+	CALL	R12
+	TESTQ	AX, AX
+	JNS	2(PC)
 	MOVL	$-1, AX
 	MOVL	AX, ret+24(FP)
 	RET
@@ -391,11 +431,13 @@ TEXT runtime·sysMmap(SB),NOSPLIT,$0
 	MOVL	flags+20(FP), R10		// arg 4 flags
 	MOVL	fd+24(FP), R8		// arg 5 fid
 	MOVL	off+28(FP), R9		// arg 6 offset
-	MOVL	$SYS_mmap, AX
-	SYSCALL
-	JCC	ok
+	MOVQ	$SYS_mmap, AX
+	MOVQ	runtime·psyscall_addr(SB), R12
+	CALL	R12
+	TESTQ	AX, AX
+	JNS	ok
 	MOVQ	$0, p+32(FP)
-	MOVQ	AX, err+40(FP)
+	MOVQ	CX, err+40(FP)
 	RET
 ok:
 	MOVQ	AX, p+32(FP)
@@ -423,9 +465,11 @@ TEXT runtime·callCgoMmap(SB),NOSPLIT,$16
 TEXT runtime·sysMunmap(SB),NOSPLIT,$0
 	MOVQ	addr+0(FP), DI		// arg 1 addr
 	MOVQ	n+8(FP), SI		// arg 2 len
-	MOVL	$SYS_munmap, AX
-	SYSCALL
-	JCC	2(PC)
+	MOVQ	$SYS_munmap, AX
+	MOVQ	runtime·psyscall_addr(SB), R12
+	CALL	R12
+	TESTQ	AX, AX
+	JNS	2(PC)
 	MOVL	$0xf1, 0xf1  // crash
 	RET
 
@@ -447,8 +491,10 @@ TEXT runtime·madvise(SB),NOSPLIT,$0
 	MOVQ	n+8(FP), SI
 	MOVL	flags+16(FP), DX
 	MOVQ	$SYS_madvise, AX
-	SYSCALL
-	JCC	2(PC)
+	MOVQ	runtime·psyscall_addr(SB), R12
+	CALL	R12
+	TESTQ	AX, AX
+	JNS	2(PC)
 	MOVL	$-1, AX
 	MOVL	AX, ret+24(FP)
 	RET
@@ -457,8 +503,10 @@ TEXT runtime·sigaltstack(SB),NOSPLIT,$-8
 	MOVQ	new+0(FP), DI
 	MOVQ	old+8(FP), SI
 	MOVQ	$SYS_sigaltstack, AX
-	SYSCALL
-	JCC	2(PC)
+	MOVQ	runtime·psyscall_addr(SB), R12
+	CALL	R12
+	TESTQ	AX, AX
+	JNS	2(PC)
 	MOVL	$0xf1, 0xf1  // crash
 	RET
 
@@ -474,8 +522,9 @@ TEXT runtime·usleep(SB),NOSPLIT,$16
 
 	MOVQ	SP, DI			// arg 1 - rqtp
 	MOVQ	$0, SI			// arg 2 - rmtp
-	MOVL	$SYS_nanosleep, AX
-	SYSCALL
+	MOVQ	$SYS_nanosleep, AX
+	MOVQ	runtime·psyscall_addr(SB), R12
+	CALL	R12
 	RET
 
 // set tls base to DI
@@ -485,8 +534,10 @@ TEXT runtime·settls(SB),NOSPLIT,$8
 	MOVQ	SP, SI
 	MOVQ	$AMD64_SET_FSBASE, DI
 	MOVQ	$SYS_sysarch, AX
-	SYSCALL
-	JCC	2(PC)
+	MOVQ	runtime·psyscall_addr(SB), R12
+	CALL	R12
+	TESTQ	AX, AX
+	JNS	2(PC)
 	MOVL	$0xf1, 0xf1  // crash
 	RET
 
@@ -498,8 +549,11 @@ TEXT runtime·sysctl(SB),NOSPLIT,$0
 	MOVQ	dst+32(FP), R8		// arg 5 - newp
 	MOVQ	ndst+40(FP), R9		// arg 6 - newlen
 	MOVQ	$SYS___sysctl, AX
-	SYSCALL
-	JCC 4(PC)
+	MOVQ	runtime·psyscall_addr(SB), R12
+	CALL	R12
+	TESTQ	AX, AX
+	JNS 5(PC)
+	MOVQ	CX, AX
 	NEGQ	AX
 	MOVL	AX, ret+48(FP)
 	RET
@@ -508,17 +562,20 @@ TEXT runtime·sysctl(SB),NOSPLIT,$0
 	RET
 
 TEXT runtime·osyield(SB),NOSPLIT,$-4
-	MOVL	$SYS_sched_yield, AX
-	SYSCALL
+	MOVQ	$SYS_sched_yield, AX
+	MOVQ	runtime·psyscall_addr(SB), R12
+	CALL	R12
 	RET
 
 TEXT runtime·sigprocmask(SB),NOSPLIT,$0
 	MOVL	how+0(FP), DI		// arg 1 - how
 	MOVQ	new+8(FP), SI		// arg 2 - set
 	MOVQ	old+16(FP), DX		// arg 3 - oset
-	MOVL	$SYS_sigprocmask, AX
-	SYSCALL
-	JAE	2(PC)
+	MOVQ	$SYS_sigprocmask, AX
+	MOVQ	runtime·psyscall_addr(SB), R12
+	CALL	R12
+	TESTQ	AX, AX
+	JNS	2(PC)
 	MOVL	$0xf1, 0xf1  // crash
 	RET
 
@@ -527,9 +584,12 @@ TEXT runtime·kqueue(SB),NOSPLIT,$0
 	MOVQ	$0, DI
 	MOVQ	$0, SI
 	MOVQ	$0, DX
-	MOVL	$SYS_kqueue, AX
-	SYSCALL
-	JCC	2(PC)
+	MOVQ	$SYS_kqueue, AX
+	MOVQ	runtime·psyscall_addr(SB), R12
+	CALL	R12
+	TESTQ	AX, AX
+	JNS	3(PC)
+	MOVQ	CX, AX
 	NEGQ	AX
 	MOVL	AX, ret+0(FP)
 	RET
@@ -542,9 +602,12 @@ TEXT runtime·kevent(SB),NOSPLIT,$0
 	MOVQ	ev+24(FP), R10
 	MOVL	nev+32(FP), R8
 	MOVQ	ts+40(FP), R9
-	MOVL	$SYS_kevent, AX
-	SYSCALL
-	JCC	2(PC)
+	MOVQ	$SYS_kevent, AX
+	MOVQ	runtime·psyscall_addr(SB), R12
+	CALL	R12
+	TESTQ	AX, AX
+	JNS	3(PC)
+	MOVQ	CX, AX
 	NEGQ	AX
 	MOVL	AX, ret+48(FP)
 	RET
@@ -554,11 +617,13 @@ TEXT runtime·fcntl(SB),NOSPLIT,$0
 	MOVL	fd+0(FP), DI	// fd
 	MOVL	cmd+4(FP), SI	// cmd
 	MOVL	arg+8(FP), DX	// arg
-	MOVL	$SYS_fcntl, AX
-	SYSCALL
-	JCC	noerr
+	MOVQ	$SYS_fcntl, AX
+	MOVQ	runtime·psyscall_addr(SB), R12
+	CALL	R12
+	TESTQ	AX, AX
+	JNS	noerr
 	MOVL	$-1, ret+16(FP)
-	MOVL	AX, errno+20(FP)
+	MOVL	CX, errno+20(FP)
 	RET
 noerr:
 	MOVL	AX, ret+16(FP)
@@ -572,9 +637,12 @@ TEXT runtime·cpuset_getaffinity(SB), NOSPLIT, $0-44
 	MOVQ	id+16(FP), DX
 	MOVQ	size+24(FP), R10
 	MOVQ	mask+32(FP), R8
-	MOVL	$SYS_cpuset_getaffinity, AX
-	SYSCALL
-	JCC	2(PC)
+	MOVQ	$SYS_cpuset_getaffinity, AX
+	MOVQ	runtime·psyscall_addr(SB), R12
+	CALL	R12
+	TESTQ	AX, AX
+	JNS	3(PC)
+	MOVQ	CX, AX
 	NEGQ	AX
 	MOVL	AX, ret+40(FP)
 	RET
@@ -584,7 +652,8 @@ TEXT runtime·issetugid(SB),NOSPLIT,$0
 	MOVQ	$0, DI
 	MOVQ	$0, SI
 	MOVQ	$0, DX
-	MOVL	$SYS_issetugid, AX
-	SYSCALL
+	MOVQ	$SYS_issetugid, AX
+	MOVQ	runtime·psyscall_addr(SB), R12
+	CALL	R12
 	MOVL	AX, ret+0(FP)
 	RET

@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-//go:build !prospero
+//go:build prospero
 
 package runtime
 
@@ -11,6 +11,17 @@ import (
 	"internal/goarch"
 	"unsafe"
 )
+
+func cgoSigtramp()
+
+//go:linkname psyscall_addr runtime.psyscall_addr
+var psyscall_addr uintptr // name to take addr of syscall_addr
+
+//go:linkname pexit_addr runtime.pexit_addr
+var pexit_addr uintptr // name to take addr of syscall_addr
+
+//go:linkname homebrew_args runtime.homebrew_args
+var homebrew_args uintptr
 
 type mOS struct{}
 
@@ -97,7 +108,7 @@ func getncpu() int32 {
 	// dynamically-sized buffer at this point.
 	const maxCPUs = 64 * 1024
 	var mask [maxCPUs / 8]byte
-	var mib [_CTL_MAXNAME]uint32
+	/*var mib [_CTL_MAXNAME]uint32
 
 	// According to FreeBSD's /usr/src/sys/kern/kern_cpuset.c,
 	// cpuset_getaffinity return ERANGE when provided buffer size exceed the limits in kernel.
@@ -116,7 +127,9 @@ func getncpu() int32 {
 	maxcpus := uint32(0)
 	if sysctl(&mib[0], miblen, (*byte)(unsafe.Pointer(&maxcpus)), &dstsize, nil, 0) != 0 {
 		return 1
-	}
+	}*/
+
+	const maxcpus = 64
 
 	maskSize := int(maxcpus+7) / 8
 	if maskSize < goarch.PtrSize {
@@ -144,14 +157,7 @@ func getncpu() int32 {
 }
 
 func getPageSize() uintptr {
-	mib := [2]uint32{_CTL_HW, _HW_PAGESIZE}
-	out := uint32(0)
-	nout := unsafe.Sizeof(out)
-	ret := sysctl(&mib[0], 2, (*byte)(unsafe.Pointer(&out)), &nout, nil, 0)
-	if ret >= 0 {
-		return uintptr(out)
-	}
-	return 0
+	return 0x4000
 }
 
 // FreeBSD's umtx_op syscall is effectively the same as Linux's futex, and
@@ -402,20 +408,6 @@ func validSIGPROF(mp *m, c *sigctxt) bool {
 }
 
 func sysargs(argc int32, argv **byte) {
-	n := argc + 1
-
-	// skip over argv, envp to get to auxv
-	for argv_index(argv, n) != nil {
-		n++
-	}
-
-	// skip NULL separator
-	n++
-
-	// now argv+n is auxv
-	auxvp := (*[1 << 28]uintptr)(add(unsafe.Pointer(argv), uintptr(n)*goarch.PtrSize))
-	pairs := sysauxv(auxvp[:])
-	auxv = auxvp[: pairs*2 : pairs*2]
 }
 
 const (
@@ -427,20 +419,7 @@ const (
 )
 
 func sysauxv(auxv []uintptr) (pairs int) {
-	var i int
-	for i = 0; auxv[i] != _AT_NULL; i += 2 {
-		tag, val := auxv[i], auxv[i+1]
-		switch tag {
-		// _AT_NCPUS from auxv shouldn't be used due to golang.org/issue/15206
-		case _AT_PAGESZ:
-			physPageSize = val
-		case _AT_TIMEKEEP:
-			timekeepSharedPage = (*vdsoTimekeep)(unsafe.Pointer(val))
-		}
-
-		archauxv(tag, val)
-	}
-	return i / 2
+	return 0
 }
 
 // sysSigaction calls the sigaction system call.
@@ -481,4 +460,21 @@ const sigPerThreadSyscall = 1 << 31
 //go:nosplit
 func runPerThreadSyscall() {
 	throw("runPerThreadSyscall only valid on linux")
+}
+
+//go:nosplit
+//go:nowritebarrierrec
+func setsig(i uint32, fn uintptr) {
+	var sa sigactiont
+	sa.sa_flags = _SA_SIGINFO | _SA_ONSTACK | _SA_RESTART
+	sa.sa_mask = sigset_all
+	if fn == abi.FuncPCABIInternal(sighandler) { // abi.FuncPCABIInternal(sighandler) matches the callers in signal_unix.go
+		if iscgo {
+			fn = abi.FuncPCABI0(cgoSigtramp)
+		} else {
+			fn = abi.FuncPCABI0(sigtramp)
+		}
+	}
+	sa.sa_handler = fn
+	sigaction(i, &sa, nil)
 }

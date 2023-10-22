@@ -1576,7 +1576,7 @@ func buildModeSupported(compiler, buildmode, goos, goarch string) bool {
 				// in a PIE or shared library.
 				return false
 			}
-		case "freebsd":
+		case "freebsd", "prospero":
 			return goarch == "amd64"
 		}
 		return false
@@ -1602,7 +1602,7 @@ func buildModeSupported(compiler, buildmode, goos, goarch string) bool {
 		switch platform {
 		case "linux/386", "linux/amd64", "linux/arm", "linux/arm64", "linux/loong64", "linux/ppc64le", "linux/riscv64", "linux/s390x",
 			"android/amd64", "android/arm", "android/arm64", "android/386",
-			"freebsd/amd64",
+			"freebsd/amd64", "prospero/amd64",
 			"darwin/amd64", "darwin/arm64",
 			"ios/amd64", "ios/arm64",
 			"aix/ppc64",

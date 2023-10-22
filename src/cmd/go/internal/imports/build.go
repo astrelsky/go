@@ -212,6 +212,8 @@ func matchTag(name string, tags map[string]bool, prefer bool) bool {
 		return tags["illumos"]
 	case "darwin":
 		return tags["ios"]
+	case "freebsd":
+		return tags["prospero"]
 	case "unix":
 		return unixOS[cfg.BuildContext.GOOS]
 	default:
@@ -322,6 +324,7 @@ var KnownOS = map[string]bool{
 	"netbsd":    true,
 	"openbsd":   true,
 	"plan9":     true,
+	"prospero":  true,
 	"solaris":   true,
 	"wasip1":    true,
 	"windows":   true,
@@ -343,6 +346,7 @@ var unixOS = map[string]bool{
 	"linux":     true,
 	"netbsd":    true,
 	"openbsd":   true,
+	"prospero":  true,
 	"solaris":   true,
 }
 

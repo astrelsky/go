@@ -105,6 +105,7 @@ func archinit(ctxt *ld.Link) {
 
 	case objabi.Hlinux, /* elf64 executable */
 		objabi.Hfreebsd,   /* freebsd */
+		objabi.Hprospero,  /* prospero */
 		objabi.Hnetbsd,    /* netbsd */
 		objabi.Hopenbsd,   /* openbsd */
 		objabi.Hdragonfly, /* dragonfly */
@@ -116,7 +117,11 @@ func archinit(ctxt *ld.Link) {
 			*ld.FlagTextAddr = (1 << 22) + int64(ld.HEADR)
 		}
 		if *ld.FlagRound == -1 {
-			*ld.FlagRound = 4096
+			if ctxt.HeadType == objabi.Hprospero {
+				*ld.FlagRound = 16384
+			} else {
+				*ld.FlagRound = 4096
+			}
 		}
 
 	case objabi.Hwindows: /* PE executable */

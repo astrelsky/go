@@ -2,7 +2,7 @@
 // for the Go runtime.
 // go tool cgo -godefs defs_freebsd.go
 
-//go:build !prospero
+//go:build prospero
 
 package runtime
 
@@ -36,6 +36,7 @@ const (
 	_MAP_SHARED  = 0x1
 	_MAP_PRIVATE = 0x2
 	_MAP_FIXED   = 0x10
+	_MAP_FLEX    = 0x3000
 
 	_MADV_DONTNEED = 0x4
 	_MADV_FREE     = 0x5
@@ -192,7 +193,11 @@ type mcontext struct {
 	mc_len           uint64
 	mc_fpformat      uint64
 	mc_ownedfp       uint64
-	mc_fpstate       [64]uint64
+	mc_lbrfrom       uint64
+	mc_lbrto         uint64
+	mc_aux1          uint64
+	mc_aux2          uint64
+	mc_fpstate       [104]uint64
 	mc_fsbase        uint64
 	mc_gsbase        uint64
 	mc_xfpustate     uint64
@@ -202,6 +207,7 @@ type mcontext struct {
 
 type ucontext struct {
 	uc_sigmask  sigset
+	__pad__     [48]byte
 	uc_mcontext mcontext
 	uc_link     *ucontext
 	uc_stack    stackt

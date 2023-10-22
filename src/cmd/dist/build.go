@@ -1023,6 +1023,7 @@ var unixOS = map[string]bool{
 	"linux":     true,
 	"netbsd":    true,
 	"openbsd":   true,
+	"prospero":  true,
 	"solaris":   true,
 }
 
@@ -1037,6 +1038,8 @@ func matchtag(tag string) bool {
 		return goos == "solaris" || goos == "illumos"
 	case "darwin":
 		return goos == "darwin" || goos == "ios"
+	case "freebsd":
+		return goos == "freebsd" || goos == "prospero"
 	case goos, goarch:
 		return true
 	case "unix":
@@ -1735,6 +1738,7 @@ var cgoEnabled = map[string]bool{
 	"plan9/386":       false,
 	"plan9/amd64":     false,
 	"plan9/arm":       false,
+	"prospero/amd64":  true,
 	"solaris/amd64":   true,
 	"windows/386":     true,
 	"windows/amd64":   true,

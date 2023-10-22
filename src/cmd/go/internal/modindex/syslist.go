@@ -24,6 +24,7 @@ var knownOS = map[string]bool{
 	"netbsd":    true,
 	"openbsd":   true,
 	"plan9":     true,
+	"prospero":  true,
 	"solaris":   true,
 	"wasip1":    true,
 	"windows":   true,
@@ -45,6 +46,7 @@ var unixOS = map[string]bool{
 	"linux":     true,
 	"netbsd":    true,
 	"openbsd":   true,
+	"prospero":  true,
 	"solaris":   true,
 }
 
