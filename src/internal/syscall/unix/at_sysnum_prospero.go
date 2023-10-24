@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-//go:build !prospero && freebsd
+//go:build prospero
 
 package unix
 
@@ -14,7 +14,6 @@ const (
 
 	UTIME_OMIT = -0x2
 
-	unlinkatTrap       uintptr = syscall.SYS_UNLINKAT
-	openatTrap         uintptr = syscall.SYS_OPENAT
-	posixFallocateTrap uintptr = syscall.SYS_POSIX_FALLOCATE
+	unlinkatTrap uintptr = syscall.SYS_UNLINKAT
+	openatTrap   uintptr = syscall.SYS_OPENAT
 )
