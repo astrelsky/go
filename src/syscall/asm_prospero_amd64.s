@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-//go:build dragonfly || (!prospero && freebsd) || netbsd
+//go:build prospero
 
 #include "textflag.h"
 #include "funcdata.h"
@@ -21,11 +21,13 @@ TEXT	·Syscall(SB),NOSPLIT,$0-56
 	MOVQ	a1+8(FP), DI
 	MOVQ	a2+16(FP), SI
 	MOVQ	a3+24(FP), DX
-	SYSCALL
-	JCC	ok
+	MOVQ	runtime·psyscall_addr(SB), R12
+	CALL	R12
+	TESTQ	AX, AX
+	JNS		ok
 	MOVQ	$-1, r1+32(FP)	// r1
 	MOVQ	$0, r2+40(FP)	// r2
-	MOVQ	AX, err+48(FP)	// errno
+	MOVQ	CX, err+48(FP)	// errno
 	CALL	runtime·exitsyscall<ABIInternal>(SB)
 	RET
 ok:
@@ -44,11 +46,13 @@ TEXT	·Syscall6(SB),NOSPLIT,$0-80
 	MOVQ	a4+32(FP), R10
 	MOVQ	a5+40(FP), R8
 	MOVQ	a6+48(FP), R9
-	SYSCALL
-	JCC	ok6
+	MOVQ	runtime·psyscall_addr(SB), R12
+	CALL	R12
+	TESTQ	AX, AX
+	JNS		ok6
 	MOVQ	$-1, r1+56(FP)	// r1
 	MOVQ	$0, r2+64(FP)	// r2
-	MOVQ	AX, err+72(FP)  // errno
+	MOVQ	CX, err+72(FP)  // errno
 	CALL	runtime·exitsyscall<ABIInternal>(SB)
 	RET
 ok6:
@@ -63,11 +67,13 @@ TEXT	·RawSyscall(SB),NOSPLIT,$0-56
 	MOVQ	a2+16(FP), SI
 	MOVQ	a3+24(FP), DX
 	MOVQ	trap+0(FP), AX	// syscall entry
-	SYSCALL
-	JCC	ok1
+	MOVQ	runtime·psyscall_addr(SB), R12
+	CALL	R12
+	TESTQ	AX, AX
+	JNS		ok1
 	MOVQ	$-1, r1+32(FP)	// r1
 	MOVQ	$0, r2+40(FP)	// r2
-	MOVQ	AX, err+48(FP)	// errno
+	MOVQ	CX, err+48(FP)	// errno
 	RET
 ok1:
 	MOVQ	AX, r1+32(FP)	// r1
@@ -83,11 +89,13 @@ TEXT	·RawSyscall6(SB),NOSPLIT,$0-80
 	MOVQ	a5+40(FP), R8
 	MOVQ	a6+48(FP), R9
 	MOVQ	trap+0(FP), AX	// syscall entry
-	SYSCALL
-	JCC	ok2
+	MOVQ	runtime·psyscall_addr(SB), R12
+	CALL	R12
+	TESTQ	AX, AX
+	JNS		ok2
 	MOVQ	$-1, r1+56(FP)	// r1
 	MOVQ	$0, r2+64(FP)	// r2
-	MOVQ	AX, err+72(FP)	// errno
+	MOVQ	CX, err+72(FP)	// errno
 	RET
 ok2:
 	MOVQ	AX, r1+56(FP)	// r1

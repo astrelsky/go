@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-//go:build dragonfly || (!prospero && freebsd) || netbsd
+//go:build prospero
 
 #include "textflag.h"
 #include "funcdata.h"
@@ -32,11 +32,13 @@ TEXT	·Syscall9(SB),NOSPLIT,$32-104
 	MOVQ	R12, 16(SP)	// arg 8
 	MOVQ	R13, 24(SP)	// arg 9
 
-	SYSCALL
-	JCC	ok9
+	MOVQ	runtime·psyscall_addr(SB), R12
+	CALL	R12
+	TESTQ	AX, AX
+	JNS		ok9
 	MOVQ	$-1, r1+80(FP)	// r1
 	MOVQ	$0, r2+88(FP)	// r2
-	MOVQ	AX, err+96(FP)	// errno
+	MOVQ	CX, err+96(FP)	// errno
 	CALL	runtime·exitsyscall<ABIInternal>(SB)
 	RET
 ok9:
