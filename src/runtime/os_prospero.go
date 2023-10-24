@@ -14,6 +14,14 @@ import (
 
 func cgoSigtramp()
 
+type PayloadArgs struct {
+	dlsym           uintptr
+	rwpipe          [2]int32
+	rwpair          [2]int32
+	kpipe_addr      uint64
+	kdata_base_addr uintptr
+}
+
 //go:linkname psyscall_addr runtime.psyscall_addr
 var psyscall_addr uintptr // name to take addr of syscall_addr
 
@@ -21,7 +29,7 @@ var psyscall_addr uintptr // name to take addr of syscall_addr
 var pexit_addr uintptr // name to take addr of syscall_addr
 
 //go:linkname homebrew_args runtime.homebrew_args
-var homebrew_args uintptr
+var homebrew_args PayloadArgs
 
 type mOS struct{}
 

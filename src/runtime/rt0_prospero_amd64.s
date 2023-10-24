@@ -3,6 +3,7 @@
 // license that can be found in the LICENSE file.
 
 #include "textflag.h"
+#include "go_asm.h"
 
 DATA fname_getpid<>+0x00(SB)/8, $0x646970746567 // "getpid"
 GLOBL fname_getpid<>(SB), (NOPTR + RODATA), $8
@@ -17,7 +18,23 @@ GLOBL argv_hack<>(SB), (NOPTR + RODATA), $16
 
 // Handle needed argument passed by homebrew elf loader
 TEXT _rt0_amd64_prospero(SB),NOSPLIT,$-8
-	MOVQ	DI, runtime·homebrew_args(SB) // payload_args
+	LEAQ	runtime·homebrew_args(SB), AX
+	MOVQ	0x0(DI), SI
+	MOVQ	SI, PayloadArgs_dlsym(AX)
+	MOVQ	0x8(DI), SI
+	MOVL	(SI), BX
+	MOVL	BX, PayloadArgs_rwpipe(AX)
+	MOVL	4(SI), BX
+	MOVL	BX, (PayloadArgs_rwpipe + 4)(AX)
+	MOVQ	0x10(DI), SI
+	MOVL	(SI), BX
+	MOVL	BX, PayloadArgs_rwpair(AX)
+	MOVL	4(SI), BX
+	MOVL	BX, (PayloadArgs_rwpair + 4)(AX)
+	MOVQ	0x18(DI), SI
+	MOVQ	SI, PayloadArgs_kpipe_addr(AX)
+	MOVQ	0x20(DI), SI
+	MOVQ	SI, PayloadArgs_kdata_base_addr(AX)
 	MOVQ	DI, AX // payload_args->dlsym
 	MOVD	$0x2001, DI
 	MOVQ	$fname_getpid<>(SB), SI
