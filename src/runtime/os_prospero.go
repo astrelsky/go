@@ -289,7 +289,14 @@ func libpreinit() {
 	initsig(true)
 }
 
+// Call a c function with cdecl conventions,
+// and switch to os stack during the call.
+func asmcdeclcall(fn unsafe.Pointer)
+
+var asmcdeclcallAddr unsafe.Pointer
+
 func osinit() {
+	asmcdeclcallAddr = unsafe.Pointer(abi.FuncPCABI0(asmcdeclcall))
 	ncpu = getncpu()
 	if physPageSize == 0 {
 		physPageSize = getPageSize()

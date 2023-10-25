@@ -657,3 +657,29 @@ TEXT runtime·issetugid(SB),NOSPLIT,$0
 	CALL	R12
 	MOVL	AX, ret+0(FP)
 	RET
+
+// void runtime·asmcdeclcall(void *c);
+TEXT runtime·asmcdeclcall(SB),NOSPLIT,$16
+	MOVQ	DI, R12
+	MOVQ	SP, R13
+	ANDQ	$~15, SP // align stack
+
+	MOVQ	libcall_fn(R12), AX
+	MOVQ	libcall_args(R12), BX
+	MOVQ	libcall_n(R12), CX
+
+	MOVQ	0(BX), DI
+	MOVQ	8(BX), SI
+	MOVQ	0x10(BX), DX
+	MOVQ	0x18(BX), CX
+	MOVQ	0x20(BX), R8
+	MOVQ	0x28(BX), R9
+
+	// Call stdcall function.
+	CALL	AX
+
+	// Return result.
+	MOVQ	R13, SP
+	MOVQ	AX, libcall_r1(R12)
+
+	RET
