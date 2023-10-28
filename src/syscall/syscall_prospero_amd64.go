@@ -95,43 +95,26 @@ type ModuleSection struct {
 }
 
 type ModuleInfo struct {
-	filename       [128]byte
-	handle         uintptr
-	unknown0       [32]byte
-	unknown1       uintptr // init
-	unknown2       uintptr // fini
-	unknown3       uintptr // eh_frame_hdr
-	unknown4       uintptr // eh_frame_hdr_sz
-	unknown5       uintptr // eh_frame
-	unknown6       uintptr // eh_frame_sz
-	sections       [4]ModuleSection
-	unknown7       [1176]byte
-	fingerprint    [20]byte
-	unknown8       uint32
-	libname        [128]byte
-	unknown9       uint32
-	sandboxed_path [1024]byte
-	sdk_version    uint64
+	size        uint64
+	name        [256]byte
+	sections    [4]ModuleSection
+	numSections uint32
+	fingerprint [20]byte
 }
 
-func (info *ModuleInfo) FileName() string {
-	length := bytes.IndexByte(info.filename[:], 0)
+func (info *ModuleInfo) Name() string {
+	length := bytes.IndexByte(info.name[:], 0)
 	if length == -1 {
 		length = 128
 	}
-	return string(info.filename[:length])
+	return string(info.name[:length])
 }
 
-func (info *ModuleInfo) Handle() uintptr {
-	return info.handle
-}
-
-// int dl_get_list(int pid, int64_t *handles, uint32_t max_handles, uint32_t *num_handles)
-func DlGetList(pid int32) (handles []uintptr, err Errno) {
+func DynlibGetList() (handles []uint32, err Errno) {
 	const MAX_HANDLES = 0x300
-	buf := [MAX_HANDLES]uintptr{}
+	buf := [MAX_HANDLES]uint32{}
 	var length uint32 = 0
-	_, _, err = RawSyscall6(SYS_DL_GET_LIST, uintptr(pid), uintptr(unsafe.Pointer(&buf[0])), uintptr(MAX_HANDLES), uintptr(unsafe.Pointer(&length)), 0, 0)
+	_, _, err = RawSyscall(SYS_DYNLIB_GET_LIST, uintptr(unsafe.Pointer(&buf[0])), uintptr(MAX_HANDLES), uintptr(unsafe.Pointer(&length)))
 	if err != 0 {
 		return
 	}
@@ -139,10 +122,9 @@ func DlGetList(pid int32) (handles []uintptr, err Errno) {
 	return
 }
 
-// static int dl_get_info_2(int pid, uint32_t sandboxed_path, int64_t handle, module_info_t *info)
-func DlGetInfo2(pid int32, handle uintptr) (*ModuleInfo, Errno) {
-	info := &ModuleInfo{}
-	_, _, err := RawSyscall6(SYS_DL_GET_INFO_2, uintptr(pid), 1, handle, uintptr(unsafe.Pointer(info)), 0, 0)
+func DynlibGetInfo(handle uint32) (*ModuleInfo, Errno) {
+	info := &ModuleInfo{size: 0x160}
+	_, _, err := RawSyscall(SYS_DYNLIB_GET_INFO, uintptr(handle), uintptr(unsafe.Pointer(info)), 0)
 	if err != 0 {
 		return nil, err
 	}

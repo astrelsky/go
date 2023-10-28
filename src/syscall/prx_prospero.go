@@ -49,8 +49,7 @@ func findLoadedPrx(name string) uintptr {
 	if e != nil {
 		return 0
 	}
-	pid := int32(Getpid())
-	handles, err := DlGetList(pid)
+	handles, err := DynlibGetList()
 	if err != 0 {
 		return 0
 	}
@@ -59,13 +58,13 @@ func findLoadedPrx(name string) uintptr {
 		if handle == LIBKERNEL_HANDLE || handle == LIBC_HANDLE {
 			continue
 		}
-		info, err := DlGetInfo2(pid, handle)
+		info, err := DynlibGetInfo(handle)
 		if err != 0 {
 			panic(err)
 		}
 		// check name and stuff "libSceSysmodule.sprx"
-		if bytes.HasPrefix(info.filename[:], cname) {
-			return info.handle
+		if bytes.HasPrefix(info.name[:], cname) {
+			return uintptr(handle)
 		}
 	}
 	return 0
