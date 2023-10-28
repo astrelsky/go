@@ -479,10 +479,14 @@ func Getpgrp() (pgrp int) {
 	return
 }
 
-func Getpid() (pid int) {
+var currentPid int = 0
+
+func Getpid() int {
+	if currentPid != 0 {
+		return currentPid
+	}
 	r0, _, _ := RawSyscall(SYS_GETPID, 0, 0, 0)
-	pid = int(r0)
-	return
+	return int(r0)
 }
 
 func Getppid() (ppid int) {

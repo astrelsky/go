@@ -18,7 +18,7 @@ type PayloadArgs struct {
 	dlsym           uintptr
 	rwpipe          [2]int32
 	rwpair          [2]int32
-	kpipe_addr      uint64
+	kpipe_addr      uintptr
 	kdata_base_addr uintptr
 }
 
@@ -30,6 +30,26 @@ var pexit_addr uintptr // name to take addr of syscall_addr
 
 //go:linkname homebrew_args runtime.homebrew_args
 var homebrew_args PayloadArgs
+
+func GetDlsym() uintptr {
+	return homebrew_args.dlsym
+}
+
+func GetRWPipe() [2]int32 {
+	return [2]int32{homebrew_args.rwpipe[0], homebrew_args.rwpipe[1]}
+}
+
+func GetRWPair() [2]int32 {
+	return [2]int32{homebrew_args.rwpair[0], homebrew_args.rwpair[1]}
+}
+
+func GetKernelPipeAddress() uintptr {
+	return homebrew_args.kpipe_addr
+}
+
+func GetKernelBase() uintptr {
+	return homebrew_args.kdata_base_addr
+}
 
 type mOS struct{}
 
