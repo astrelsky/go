@@ -241,16 +241,13 @@ func KernelCopyout(ksrc uintptr, p []byte) (n int, err error) {
 	// Set pipe flags
 	write_buf := [3]uintptr{0x4000000040000000, 0x4000000000000000, 0}
 
-	println("_kwrite 1")
 	_kwrite(_pipe_addr, unsafe.Pointer(&write_buf[0]))
 
 	// Set pipe data addr
 	write_buf = [3]uintptr{ksrc, 0, 0}
-	println("_kwrite 2")
 	_kwrite(_pipe_addr+0x10, unsafe.Pointer(&write_buf[0]))
 
 	// Perform read across pipe
-	println("_read ", _rw_pipe[0])
 	n, err = _read(_rw_pipe[0], p)
 	return
 }
