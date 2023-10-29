@@ -7,6 +7,7 @@ package syscall
 import (
 	"bytes"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"unsafe"
@@ -90,6 +91,17 @@ func loadModuleByNameInternal(name string) uintptr {
 		return 0
 	}
 	return findLoadedPrx(name)
+}
+
+func GetInternalPrxId(name string) uintptr {
+	if !strings.HasSuffix(name, ".sprx") {
+		name += ".sprx"
+	}
+	id, ok := internalPrx[name]
+	if ok {
+		return id
+	}
+	return 0
 }
 
 // LoadPrx loads the named prx file into memory.
