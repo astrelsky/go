@@ -3,6 +3,11 @@
 package syscall
 
 const (
+	PROT_GPU_READ  = 0x10
+	PROT_GPU_WRITE = 0x20
+)
+
+const (
 	// SYS_NOSYS = 0;  // { int nosys(void); } syscall nosys_args int
 	SYS_EXIT  = 1
 	SYS_FORK  = 2
