@@ -12,6 +12,8 @@ import (
 	"unsafe"
 )
 
+const IPV6_2292PKTOPTIONS = 25
+
 func setTimespec(sec, nsec int64) Timespec {
 	return Timespec{Sec: sec, Nsec: nsec}
 }
