@@ -340,3 +340,14 @@ func (p *LazyProc) Call(a ...uintptr) (r1, r2 uintptr, lastErr error) {
 	p.mustFind()
 	return p.proc.Call(a...)
 }
+
+// SetAddr sets the procedure address for functions which cannot be
+// resolved using dlsym.
+func (p *LazyProc) SetAddr(addr uintptr) {
+	if atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&p.proc))) != nil {
+		panic("Address for procedure " + p.Name + " has already been set")
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&p.proc)), unsafe.Pointer(addr))
+}
