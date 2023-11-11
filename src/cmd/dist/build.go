@@ -97,6 +97,7 @@ var okgoos = []string{
 	"netbsd",
 	"openbsd",
 	"plan9",
+	"prospero",
 	"windows",
 	"aix",
 }
