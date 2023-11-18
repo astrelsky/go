@@ -6,7 +6,6 @@ package syscall
 
 import (
 	"bytes"
-	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -73,7 +72,7 @@ func findLoadedPrx(name string) uintptr {
 
 // uintptr sceSysmoduleLoadModuleInternal(uint32_t);
 func loadModuleInternal(id uintptr, name string) uintptr {
-	res, _, _ := sceSysmoduleLoadModuleByNameInternal.Call(id)
+	res, _, _ := sceSysmoduleLoadModuleInternal.Call(id)
 	if int(res) == -1 {
 		return 0
 	}
@@ -133,7 +132,10 @@ func MustLoadPrx(name string) *Prx {
 // FindProc searches Prx d for procedure named name and returns *Proc
 // if found. It returns an error if search fails.
 func (d *Prx) FindProc(name string) (proc *Proc, err error) {
-	a := dlsym(d.Handle, name)
+	a, err := dlsym(d.Handle, name)
+	if err != nil {
+		return nil, err
+	}
 	if a == 0 {
 		return nil, &PrxError{
 			Err:     nil,
@@ -197,20 +199,17 @@ func (p *Proc) Call(a ...uintptr) (uintptr, uintptr, error) {
 	return SyscallN(p.Addr(), a...)
 }
 
-//go:uintptrescapes
-func doDlsym(handle uintptr, name uintptr, addr uintptr) {
-	SyscallN(runtime.GetDlsym(), handle, name, addr)
-}
-
-func dlsym(handle uintptr, name string) uintptr {
+func dlsym(handle uintptr, name string) (uintptr, error) {
 	cname, err := BytePtrFromString(name)
 	if err != nil {
-		return 0
+		return 0, err
 	}
 
 	var addr uintptr = 0
-	doDlsym(handle, uintptr(unsafe.Pointer(cname)), uintptr(unsafe.Pointer(&addr)))
-	return addr
+	var errno Errno
+	_, _, errno = Syscall(SYS_DYNLIB_DLSYM, handle, uintptr(unsafe.Pointer(cname)), uintptr(unsafe.Pointer(&addr)))
+	err = errnoErr(errno)
+	return addr, err
 }
 
 // A LazyPrx implements access to a single Prx.
@@ -349,5 +348,10 @@ func (p *LazyProc) SetAddr(addr uintptr) {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&p.proc)), unsafe.Pointer(addr))
+	proc := Proc{
+		Prx:  p.l.dll,
+		Name: p.Name,
+		addr: addr,
+	}
+	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&p.proc)), unsafe.Pointer(&proc))
 }

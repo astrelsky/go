@@ -22,11 +22,32 @@ type PayloadArgs struct {
 	kdata_base_addr uintptr
 }
 
-//go:linkname psyscall_addr runtime.psyscall_addr
-var psyscall_addr uintptr // name to take addr of syscall_addr
+type pthread_attr struct {
+	sched_policy   int32
+	sched_inherit  int32
+	prio           int32
+	suspend        int32
+	flags          int32
+	stackaddr_attr uintptr
+	stacksize_attr uintptr
+	guardsize_attr uint64
+	cpuset         uintptr
+	cpuset_size    uintptr
+}
 
-//go:linkname pexit_addr runtime.pexit_addr
-var pexit_addr uintptr // name to take addr of syscall_addr
+const PTHREAD_DETACHED = 1
+
+//go:linkname psyscall_addr runtime.psyscall_addr
+var psyscall_addr uintptr // name to take addr of syscall
+
+//go:linkname ppthread_create runtime.ppthread_create
+var ppthread_create uintptr // name to take addr of pthread_create
+
+//go:linkname ppthread_exit runtime.ppthread_exit
+var ppthread_exit uintptr // name to take addr of pthread_exit
+
+//go:linkname ppthread_kill runtime.ppthread_kill
+var ppthread_kill uintptr // name to take addr of pthread_kill
 
 //go:linkname homebrew_args runtime.homebrew_args
 var homebrew_args PayloadArgs
@@ -54,7 +75,7 @@ func GetKernelBase() uintptr {
 type mOS struct{}
 
 //go:noescape
-func thr_new(param *thrparam, size int32) int32
+func thr_new(fn uintptr, tls unsafe.Pointer, attr **pthread_attr) int32
 
 //go:noescape
 func sigaltstack(new, old *stackt)
@@ -72,6 +93,9 @@ func raiseproc(sig uint32)
 
 func thr_self() thread
 func thr_kill(tid thread, sig int)
+
+func thr_attr_init(unsafe.Pointer) int32
+func thr_attr_destroy(unsafe.Pointer) int32
 
 //go:noescape
 func sys_umtx_op(addr *uint32, mode int32, val uint32, uaddr1 uintptr, ut *umtx_time) int32
@@ -234,28 +258,19 @@ func thr_start()
 //go:nowritebarrier
 func newosproc(mp *m) {
 	stk := unsafe.Pointer(mp.g0.stack.hi)
-	if false {
-		print("newosproc stk=", stk, " m=", mp, " g=", mp.g0, " thr_start=", abi.FuncPCABI0(thr_start), " id=", mp.id, " ostk=", &mp, "\n")
-	}
-
-	param := thrparam{
-		start_func: abi.FuncPCABI0(thr_start),
-		arg:        unsafe.Pointer(mp),
-		stack_base: mp.g0.stack.lo,
-		stack_size: uintptr(stk) - mp.g0.stack.lo,
-		child_tid:  nil, // minit will record tid
-		parent_tid: nil,
-		tls_base:   unsafe.Pointer(&mp.tls[0]),
-		tls_size:   unsafe.Sizeof(mp.tls),
-	}
-
 	var oset sigset
 	sigprocmask(_SIG_SETMASK, &sigset_all, &oset)
+
+	attr := &pthread_attr{
+		flags:          PTHREAD_DETACHED,
+		stackaddr_attr: mp.g0.stack.lo,
+		stacksize_attr: uintptr(stk) - mp.g0.stack.lo,
+	}
+
 	ret := retryOnEAGAIN(func() int32 {
-		errno := thr_new(&param, int32(unsafe.Sizeof(param)))
-		// thr_new returns negative errno
-		return -errno
+		return thr_new(abi.FuncPCABI0(thr_start), unsafe.Pointer(mp), &attr)
 	})
+
 	sigprocmask(_SIG_SETMASK, &oset, nil)
 	if ret != 0 {
 		print("runtime: failed to create new OS thread (have ", mcount(), " already; errno=", ret, ")\n")
@@ -278,20 +293,17 @@ func newosproc0(stacksize uintptr, fn unsafe.Pointer) {
 	// pointers, though the tid pointers can be nil.
 	// However, newosproc0 is currently unreachable because builds
 	// utilizing c-shared/c-archive force external linking.
-	param := thrparam{
-		start_func: uintptr(fn),
-		arg:        nil,
-		stack_base: uintptr(stack), //+stacksize?
-		stack_size: stacksize,
-		child_tid:  nil, // minit will record tid
-		parent_tid: nil,
-		tls_base:   unsafe.Pointer(&m0.tls[0]),
-		tls_size:   unsafe.Sizeof(m0.tls),
-	}
 
 	var oset sigset
 	sigprocmask(_SIG_SETMASK, &sigset_all, &oset)
-	ret := thr_new(&param, int32(unsafe.Sizeof(param)))
+
+	attr := &pthread_attr{
+		flags:          PTHREAD_DETACHED,
+		stackaddr_attr: uintptr(stack),
+		stacksize_attr: stacksize,
+	}
+
+	ret := thr_new(uintptr(fn), unsafe.Pointer(&m0), &attr)
 	sigprocmask(_SIG_SETMASK, &oset, nil)
 	if ret < 0 {
 		writeErrStr(failthreadcreate)
