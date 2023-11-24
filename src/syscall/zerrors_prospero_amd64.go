@@ -4,7 +4,7 @@
 // Created by cgo -godefs - DO NOT EDIT
 // cgo -godefs -- -m64 _const.go
 
-//go:build !prospero && amd64 && freebsd
+//go:build amd64 && prospero
 
 package syscall
 
@@ -448,7 +448,7 @@ const (
 	F_DUP2FD                          = 0xa
 	F_DUP2FD_CLOEXEC                  = 0x12
 	F_DUPFD                           = 0x0
-	F_DUPFD_CLOEXEC                   = 0x11
+	F_DUPFD_CLOEXEC                   = 0x0
 	F_GETFD                           = 0x1
 	F_GETFL                           = 0x3
 	F_GETLK                           = 0xb
