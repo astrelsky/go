@@ -655,7 +655,7 @@ func DupCloseOnExec(fd int) (int, string, error) {
 			return r0, "", nil
 		}
 		switch err {
-		case syscall.EINVAL, syscall.ENOSYS:
+		case syscall.EINVAL, syscall.ENOSYS, syscall.ENOTSUP:
 			// Old kernel, or js/wasm (which returns
 			// ENOSYS). Fall back to the portable way from
 			// now on.
