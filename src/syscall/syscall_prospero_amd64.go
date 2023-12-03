@@ -116,7 +116,7 @@ func DynlibGetList() (handles []uint32, err Errno) {
 	const MAX_HANDLES = 0x300
 	buf := [MAX_HANDLES]uint32{}
 	var length uint32 = 0
-	_, _, err = RawSyscall(SYS_DYNLIB_GET_LIST, uintptr(unsafe.Pointer(&buf[0])), uintptr(MAX_HANDLES), uintptr(unsafe.Pointer(&length)))
+	_, _, err = Syscall(SYS_DYNLIB_GET_LIST, uintptr(unsafe.Pointer(&buf[0])), uintptr(MAX_HANDLES), uintptr(unsafe.Pointer(&length)))
 	if err != 0 {
 		return
 	}
@@ -126,7 +126,7 @@ func DynlibGetList() (handles []uint32, err Errno) {
 
 func DynlibGetInfo(handle uint32) (*ModuleInfo, Errno) {
 	info := &ModuleInfo{size: 0x160}
-	_, _, err := RawSyscall(SYS_DYNLIB_GET_INFO, uintptr(handle), uintptr(unsafe.Pointer(info)), 0)
+	_, _, err := Syscall(SYS_DYNLIB_GET_INFO, uintptr(handle), uintptr(unsafe.Pointer(info)), 0)
 	if err != 0 {
 		return nil, err
 	}
@@ -173,7 +173,7 @@ func _write(fd int, p []byte) (n int, err error) {
 	} else {
 		_p0 = unsafe.Pointer(&_zero)
 	}
-	r0, _, e1 := RawSyscall(SYS_WRITE, uintptr(fd), uintptr(_p0), uintptr(len(p)))
+	r0, _, e1 := Syscall(SYS_WRITE, uintptr(fd), uintptr(_p0), uintptr(len(p)))
 	n = int(r0)
 	if e1 != 0 {
 		err = errnoErr(e1)
@@ -188,7 +188,7 @@ func _read(fd int, p []byte) (n int, err error) {
 	} else {
 		_p0 = unsafe.Pointer(&_zero)
 	}
-	r0, _, e1 := RawSyscall(SYS_READ, uintptr(fd), uintptr(_p0), uintptr(len(p)))
+	r0, _, e1 := Syscall(SYS_READ, uintptr(fd), uintptr(_p0), uintptr(len(p)))
 	n = int(r0)
 	if e1 != 0 {
 		err = errnoErr(e1)
