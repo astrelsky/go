@@ -277,7 +277,11 @@ func buildModeInit() {
 		} else {
 			codegenArg = "-dynlink"
 		}
-		cfg.ExeSuffix = ".so"
+		if cfg.Goos == "prospero" {
+			cfg.ExeSuffix = ".prx"
+		} else {
+			cfg.ExeSuffix = ".so"
+		}
 		ldBuildmode = "plugin"
 	default:
 		base.Fatalf("buildmode=%s not supported", cfg.BuildBuildmode)

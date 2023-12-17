@@ -72,6 +72,10 @@ func GetKernelBase() uintptr {
 	return homebrew_args.kdata_base_addr
 }
 
+func GetSyscallAddress() uintptr {
+	return psyscall_addr
+}
+
 type mOS struct{}
 
 //go:noescape

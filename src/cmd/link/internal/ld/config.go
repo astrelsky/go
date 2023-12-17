@@ -152,9 +152,9 @@ func mustLinkExternal(ctxt *Link) (res bool, reason string) {
 			return true, "buildmode=pie"
 		}
 	case BuildModePlugin:
-		return true, "buildmode=plugin"
+		return !ctxt.IsProspero(), "buildmode=plugin"
 	case BuildModeShared:
-		return true, "buildmode=shared"
+		return !ctxt.IsProspero(), "buildmode=shared"
 	}
 	if ctxt.linkShared {
 		return true, "dynamically linking with a shared library"

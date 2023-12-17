@@ -483,7 +483,7 @@ func (ctxt *Link) extld() []string {
 		// This only matters when link tool is called directly without explicit -extld,
 		// go tool already passes the correct linker in other cases.
 		switch buildcfg.GOOS {
-		case "darwin", "freebsd", "openbsd":
+		case "darwin", "freebsd", "openbsd", "prospero":
 			flagExtld = []string{"clang"}
 		default:
 			flagExtld = []string{"gcc"}
@@ -570,12 +570,12 @@ func (ctxt *Link) loadlib() {
 
 	// Plugins a require cgo support to function. Similarly, plugins may require additional
 	// internal linker support on some platforms which may not be implemented.
-	ctxt.canUsePlugins = ctxt.LibraryByPkg["plugin"] != nil && iscgo
+	ctxt.canUsePlugins = ctxt.LibraryByPkg["plugin"] != nil && (iscgo || buildcfg.GOOS == "prospero")
 
 	// We now have enough information to determine the link mode.
 	determineLinkMode(ctxt)
 
-	if ctxt.LinkMode == LinkExternal && !iscgo && !(buildcfg.GOOS == "darwin" && ctxt.BuildMode != BuildModePlugin && ctxt.Arch.Family == sys.AMD64) {
+	if ctxt.LinkMode == LinkExternal && !iscgo && buildcfg.GOOS != "prospero" && !(buildcfg.GOOS == "darwin" && ctxt.BuildMode != BuildModePlugin && ctxt.Arch.Family == sys.AMD64) {
 		// This indicates a user requested -linkmode=external.
 		// The startup code uses an import of runtime/cgo to decide
 		// whether to initialize the TLS.  So give it one. This could

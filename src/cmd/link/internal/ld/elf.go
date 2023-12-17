@@ -2278,7 +2278,9 @@ elfobj:
 	}
 
 	if ctxt.LinkMode != LinkExternal {
-		eh.Entry = uint64(Entryvalue(ctxt))
+		if ctxt.BuildMode != BuildModeShared && ctxt.BuildMode != BuildModePlugin {
+			eh.Entry = uint64(Entryvalue(ctxt))
+		}
 	}
 
 	eh.Version = uint32(elf.EV_CURRENT)

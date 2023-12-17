@@ -89,7 +89,7 @@ Flags:
 		Set name of compiler support library.
 		This is only used in internal link mode.
 		If not set, default value comes from running the compiler,
-		which may be set by the -extld option.
+		which may be set by the - option.
 		Set to "none" to use no support library.
 	-linkmode mode
 		Set link mode (internal, external, auto).

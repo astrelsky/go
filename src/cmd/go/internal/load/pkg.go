@@ -2604,13 +2604,15 @@ func externalLinkingForced(p *Package) bool {
 
 	// Some build modes always require external linking.
 	switch cfg.BuildBuildmode {
-	case "c-shared", "plugin":
+	case "c-shared":
 		return true
+	case "plugin":
+		return cfg.BuildContext.GOOS != "prospero"
 	}
 
 	// Using -linkshared always requires external linking.
 	if cfg.BuildLinkshared {
-		return true
+		return cfg.BuildContext.GOOS != "prospero"
 	}
 
 	// Decide whether we are building a PIE,
