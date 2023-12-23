@@ -68,7 +68,7 @@ TEXT runtime·sys_umtx_op(SB),NOSPLIT,$0
 // dummy value used for thread and retval
 GLOBL dummy_retval(SB), (NOPTR), $8
 
-TEXT runtime·thr_new<ABIInternal>(SB),NOSPLIT,$0
+TEXT runtime·thr_new<ABIInternal>(SB),NOSPLIT|NOFRAME,$0
 	LEAQ	dummy_retval(SB), DI
 	MOVQ	CX, SI
 	MOVQ	AX, DX

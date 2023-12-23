@@ -272,7 +272,11 @@ func newosproc(mp *m) {
 	}
 
 	ret := retryOnEAGAIN(func() int32 {
-		return thr_new(abi.FuncPCABI0(thr_start), unsafe.Pointer(mp), &attr)
+		var e int32
+		systemstack(func() {
+			e = thr_new(abi.FuncPCABI0(thr_start), unsafe.Pointer(mp), &attr)
+		})
+		return e
 	})
 
 	sigprocmask(_SIG_SETMASK, &oset, nil)
