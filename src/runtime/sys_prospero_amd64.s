@@ -665,27 +665,31 @@ TEXT runtime·issetugid(SB),NOSPLIT,$0
 	RET
 
 // void runtime·asmcdeclcall(void *c);
-TEXT runtime·asmcdeclcall(SB),NOSPLIT,$16
-	MOVQ	DI, R12
-	MOVQ	SP, R13
-	ANDQ	$~15, SP // align stack
+TEXT runtime·asmcdeclcall(SB),NOSPLIT,$0
+	// asmcgocall will put first argument into DI.
+	PUSHQ	DI			// save for later
+	MOVQ	libcall_fn(DI), AX
+	MOVQ	libcall_args(DI), R11
+	MOVQ	libcall_n(DI), R10
 
-	MOVQ	libcall_fn(R12), AX
-	MOVQ	libcall_args(R12), BX
-	MOVQ	libcall_n(R12), CX
+skiperrno1:
+	CMPQ	R11, $0
+	JEQ	skipargs
+	// Load 6 args into correspondent registers.
+	MOVQ	0(R11), DI
+	MOVQ	8(R11), SI
+	MOVQ	16(R11), DX
+	MOVQ	24(R11), CX
+	MOVQ	32(R11), R8
+	MOVQ	40(R11), R9
+skipargs:
 
-	MOVQ	0(BX), DI
-	MOVQ	8(BX), SI
-	MOVQ	0x10(BX), DX
-	MOVQ	0x18(BX), CX
-	MOVQ	0x20(BX), R8
-	MOVQ	0x28(BX), R9
-
-	// Call stdcall function.
+	// Call SysV function
 	CALL	AX
 
-	// Return result.
-	MOVQ	R13, SP
-	MOVQ	AX, libcall_r1(R12)
+	// Return result
+	POPQ	DI
+	MOVQ	AX, libcall_r1(DI)
 
+skiperrno2:
 	RET

@@ -7,26 +7,34 @@ const maxArgs = 6
 
 //go:linkname syscall_SyscallN syscall.SyscallN
 //go:nosplit
+//go:cgo_unsafe_args
 func syscall_SyscallN(trap uintptr, args ...uintptr) (r1 uintptr) {
+	if trap == 0 {
+		panic("null trap")
+	}
 	nargs := len(args)
 
-	// asmstdcall expects it can access the first 4 arguments
+	// asmstdcall expects it can access the first 6 arguments
 	// to load them into registers.
-	var tmp [4]uintptr
+	var tmp [maxArgs]uintptr
 	switch {
-	case nargs < 4:
+	case nargs < maxArgs:
 		copy(tmp[:], args)
 		args = tmp[:]
 	case nargs > maxArgs:
 		panic("runtime: SyscallN has too many arguments")
 	}
 
-	lockOSThread()
-	defer unlockOSThread()
-	c := &getg().m.syscall
-	c.fn = trap
-	c.n = uintptr(nargs)
-	c.args = uintptr(noescape(unsafe.Pointer(&args[0])))
-	cgocall(asmcdeclcallAddr, unsafe.Pointer(c))
-	return c.r1
+	call := libcall{
+		fn:   trap,
+		n:    uintptr(nargs),
+		args: uintptr(unsafe.Pointer(&args[0])),
+	}
+
+	entersyscallblock()
+	asmcgocall(asmcdeclcallAddr, unsafe.Pointer(&call))
+	exitsyscall()
+
+	r1 = call.r1
+	return
 }

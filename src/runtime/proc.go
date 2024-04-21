@@ -4440,7 +4440,7 @@ func syscall_runtime_BeforeExec() {
 
 	// On Darwin, wait for all pending preemption signals to
 	// be received. See issue #41702.
-	if GOOS == "darwin" || GOOS == "ios" {
+	if GOOS == "darwin" || GOOS == "ios" || GOOS == "prospero" {
 		for pendingPreemptSignals.Load() > 0 {
 			osyield()
 		}
