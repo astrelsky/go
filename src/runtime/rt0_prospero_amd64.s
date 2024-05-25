@@ -31,6 +31,8 @@ GLOBL argv_hack<>(SB), (NOPTR + RODATA), $16
 GLOBL ppthread_join(SB), (NOPTR), $8
 GLOBL main_thread(SB), (NOPTR), $8
 
+DATA libkernel_handle(SB)/4, $0x2001
+GLOBL libkernel_handle(SB), (NOPTR), $4
 
 // MOVQ src, dst // stupid x86
 
@@ -54,24 +56,33 @@ TEXT _rt0_amd64_prospero(SB),NOSPLIT,$-8
 	MOVQ	0x20(DI), SI
 	MOVQ	SI, PayloadArgs_kdata_base_addr(AX)
 	MOVQ	DI, AX // payload_args->dlsym
-	MOVD	$0x2001, DI
+	MOVL	libkernel_handle(SB), DI
 	MOVQ	$fname_getpid<>(SB), SI
 	LEAQ	runtime·psyscall_addr(SB), DX
 	PUSHQ	AX
 	CALL	(AX)
+	TESTQ	AX,AX
+	JZ		found_handle
+	MOVL	$0x1, libkernel_handle(SB)
+	MOVL	libkernel_handle(SB), DI
+	MOVQ	(SP), AX
+	MOVQ	$fname_getpid<>(SB), SI
+	LEAQ	runtime·psyscall_addr(SB), DX
+	CALL	(AX)
+found_handle:
 	ADDQ	$10, runtime·psyscall_addr(SB)
 	MOVQ	(SP), AX
-	MOVD	$0x2001, DI
+	MOVL	libkernel_handle(SB), DI
 	MOVQ	$fname_pthread_create<>(SB), SI
 	LEAQ	runtime·ppthread_create(SB), DX
 	CALL	(AX)
 	MOVQ	(SP), AX
-	MOVD	$0x2001, DI
+	MOVL	libkernel_handle(SB), DI
 	MOVQ	$fname_pthread_exit<>(SB), SI
 	LEAQ	runtime·ppthread_exit(SB), DX
 	CALL	(AX)
 	MOVQ	(SP), AX
-	MOVD	$0x2001, DI
+	MOVL	libkernel_handle(SB), DI
 	MOVQ	$fname_pthread_kill<>(SB), SI
 	LEAQ	runtime·ppthread_kill(SB), DX
 	CALL	(AX)
