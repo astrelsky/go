@@ -258,7 +258,7 @@ func TestMergeNoteSections(t *testing.T) {
 
 	switch runtime.GOOS {
 	case "linux", "dragonfly":
-	case "openbsd", "netbsd", "freebsd":
+	case "openbsd", "netbsd", "freebsd", "prospero":
 		// These OSes require independent segment
 		expected = 2
 	default:

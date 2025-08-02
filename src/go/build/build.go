@@ -1983,6 +1983,9 @@ func (ctxt *Context) matchTag(name string, allTags map[string]bool) bool {
 	if name == "boringcrypto" {
 		name = "goexperiment.boringcrypto" // boringcrypto is an old name for goexperiment.boringcrypto
 	}
+	if name == "freebsd" {
+		return ctxt.GOOS == "freebsd" || ctxt.GOOS == "prospero"
+	}
 
 	// other tags
 	return slices.Contains(ctxt.BuildTags, name) || slices.Contains(ctxt.ToolTags, name) ||

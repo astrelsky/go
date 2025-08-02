@@ -524,7 +524,7 @@ func TestTraceManyStartStop(t *testing.T) {
 
 func TestTraceWaitOnPipe(t *testing.T) {
 	switch runtime.GOOS {
-	case "dragonfly", "freebsd", "linux", "netbsd", "openbsd", "solaris":
+	case "dragonfly", "freebsd", "linux", "netbsd", "openbsd", "prospero", "solaris":
 		testTraceProg(t, "wait-on-pipe.go", nil)
 		return
 	}

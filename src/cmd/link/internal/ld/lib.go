@@ -486,7 +486,7 @@ func (ctxt *Link) extld() []string {
 		// This only matters when link tool is called directly without explicit -extld,
 		// go tool already passes the correct linker in other cases.
 		switch buildcfg.GOOS {
-		case "darwin", "freebsd", "openbsd":
+		case "darwin", "freebsd", "openbsd", "prospero":
 			flagExtld = []string{"clang"}
 		default:
 			flagExtld = []string{"gcc"}

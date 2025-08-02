@@ -757,7 +757,7 @@ const (
 // value of the GODEBUG environment variable.
 func cpuinit(env string) {
 	switch GOOS {
-	case "aix", "darwin", "ios", "dragonfly", "freebsd", "netbsd", "openbsd", "illumos", "solaris", "linux":
+	case "aix", "darwin", "ios", "dragonfly", "freebsd", "netbsd", "openbsd", "prospero", "illumos", "solaris", "linux":
 		cpu.DebugOptions = true
 	}
 	cpu.Initialize(env)
@@ -793,7 +793,7 @@ func getGodebugEarly() string {
 	const prefix = "GODEBUG="
 	var env string
 	switch GOOS {
-	case "aix", "darwin", "ios", "dragonfly", "freebsd", "netbsd", "openbsd", "illumos", "solaris", "linux":
+	case "aix", "darwin", "ios", "dragonfly", "freebsd", "netbsd", "openbsd", "prospero", "illumos", "solaris", "linux":
 		// Similar to goenv_unix but extracts the environment value for
 		// GODEBUG directly.
 		// TODO(moehrmann): remove when general goenvs() can be called before cpuinit()

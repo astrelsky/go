@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-//go:build !prospero && (unix || (js && wasm) || wasip1)
+//go:build prospero
 
 package poll
 
@@ -651,22 +651,13 @@ var dupCloexecUnsupported atomic.Bool
 
 // DupCloseOnExec dups fd and marks it close-on-exec.
 func DupCloseOnExec(fd int) (int, string, error) {
-	if syscall.F_DUPFD_CLOEXEC != 0 && !dupCloexecUnsupported.Load() {
-		r0, err := unix.Fcntl(fd, syscall.F_DUPFD_CLOEXEC, 0)
-		if err == nil {
-			return r0, "", nil
-		}
-		switch err {
-		case syscall.EINVAL, syscall.ENOSYS:
-			// Old kernel, or js/wasm (which returns
-			// ENOSYS). Fall back to the portable way from
-			// now on.
-			dupCloexecUnsupported.Store(true)
-		default:
-			return -1, "fcntl", err
-		}
+	// forking is not allowed
+	// thereforce no need to worry about close on exec
+	newfd, err := syscall.Dup(fd)
+	if err != nil {
+		return -1, "dup", err
 	}
-	return dupCloseOnExecOld(fd)
+	return newfd, "", nil
 }
 
 // Dup duplicates the file descriptor.

@@ -37,7 +37,7 @@ func TestRead(t *testing.T) {
 func specialFiles() []string {
 	var ps []string
 	switch runtime.GOOS {
-	case "darwin", "ios", "dragonfly", "freebsd", "netbsd", "openbsd":
+	case "darwin", "ios", "dragonfly", "freebsd", "netbsd", "openbsd", "prospero":
 		ps = []string{
 			"/dev/null",
 		}

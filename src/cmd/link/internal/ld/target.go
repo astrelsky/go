@@ -181,6 +181,11 @@ func (t *Target) IsFreebsd() bool {
 	return t.HeadType == objabi.Hfreebsd
 }
 
+func (t *Target) IsProspero() bool {
+	t.mustSetHeadType()
+	return t.HeadType == objabi.Hprospero
+}
+
 func (t *Target) mustSetHeadType() {
 	if t.HeadType == objabi.Hunknown {
 		panic("HeadType is not set")

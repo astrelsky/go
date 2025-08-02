@@ -1031,7 +1031,7 @@ func raisebadsignal(sig uint32, c *sigctxt) {
 	//
 	// On FreeBSD, the libthr sigaction code prevents
 	// this from working so we fall through to raise.
-	if GOOS != "freebsd" && (isarchive || islibrary) && handler == _SIG_DFL && !c.sigFromUser() {
+	if (GOOS != "freebsd" && GOOS != "prospero") && (isarchive || islibrary) && handler == _SIG_DFL && !c.sigFromUser() {
 		return
 	}
 

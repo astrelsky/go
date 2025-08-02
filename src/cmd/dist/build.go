@@ -101,6 +101,7 @@ var okgoos = []string{
 	"netbsd",
 	"openbsd",
 	"plan9",
+	"prospero",
 	"windows",
 	"aix",
 }
@@ -323,6 +324,7 @@ func compilerEnv(envName, def string) map[string]string {
 var clangos = []string{
 	"darwin", "ios", // macOS 10.9 and later require clang
 	"freebsd", // FreeBSD 10 and later do not ship gcc
+	"prospero",
 	"openbsd", // OpenBSD ships with GCC 4.2, which is now quite old.
 }
 
@@ -1079,6 +1081,7 @@ var unixOS = map[string]bool{
 	"linux":     true,
 	"netbsd":    true,
 	"openbsd":   true,
+	"prospero":  true,
 	"solaris":   true,
 }
 
@@ -1093,6 +1096,8 @@ func matchtag(tag string) bool {
 		return goos == "solaris" || goos == "illumos"
 	case "darwin":
 		return goos == "darwin" || goos == "ios"
+	case "freebsd":
+		return goos == "freebsd" || goos == "prospero"
 	case goos, goarch:
 		return true
 	case "unix":
@@ -1816,6 +1821,7 @@ var cgoEnabled = map[string]bool{
 	"plan9/386":       false,
 	"plan9/amd64":     false,
 	"plan9/arm":       false,
+	"prospero/amd64":  false,
 	"solaris/amd64":   true,
 	"windows/386":     true,
 	"windows/amd64":   true,

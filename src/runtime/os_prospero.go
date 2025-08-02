@@ -2,15 +2,31 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-//go:build !prospero
+//go:build prospero
 
 package runtime
 
 import (
 	"internal/abi"
-	"internal/goarch"
 	"unsafe"
 )
+
+type PayloadArgs struct {
+	dlsym           uintptr
+	rwpipe          [2]int32
+	rwpair          [2]int32
+	kpipe_addr      uint64
+	kdata_base_addr uintptr
+}
+
+//go:linkname psyscall_addr runtime.psyscall_addr
+var psyscall_addr uintptr // name to take addr of syscall_addr
+
+//go:linkname homebrew_args runtime.homebrew_args
+var homebrew_args PayloadArgs
+
+//go:linkname _rt0_functions runtime._rt0_functions
+var _rt0_functions [7]uintptr // storage for _rt0
 
 type mOS struct {
 	waitsema uint32 // semaphore for parking on locks
@@ -27,9 +43,6 @@ func sigprocmask(how int32, new, old *sigset)
 
 //go:noescape
 func setitimer(mode int32, new, old *itimerval)
-
-//go:noescape
-func sysctl(mib *uint32, miblen uint32, out *byte, size *uintptr, dst *byte, ndst uintptr) int32
 
 func raiseproc(sig uint32)
 
@@ -70,21 +83,6 @@ const (
 	_CTL_QUERY_MIB = 3
 )
 
-// sysctlnametomib fill mib with dynamically assigned sysctl entries of name,
-// return count of effected mib slots, return 0 on error.
-func sysctlnametomib(name []byte, mib *[_CTL_MAXNAME]uint32) uint32 {
-	oid := [2]uint32{_CTL_QUERY, _CTL_QUERY_MIB}
-	miblen := uintptr(_CTL_MAXNAME)
-	if sysctl(&oid[0], 2, (*byte)(unsafe.Pointer(mib)), &miblen, (*byte)(unsafe.Pointer(&name[0])), (uintptr)(len(name))) < 0 {
-		return 0
-	}
-	miblen /= unsafe.Sizeof(uint32(0))
-	if miblen <= 0 {
-		return 0
-	}
-	return uint32(miblen)
-}
-
 const (
 	_CPU_CURRENT_PID = -1 // Current process ID.
 )
@@ -94,42 +92,11 @@ func cpuset_getaffinity(level int, which int, id int64, size int, mask *byte) in
 
 //go:systemstack
 func getCPUCount() int32 {
-	// Use a large buffer for the CPU mask. We're on the system
-	// stack, so this is fine, and we can't allocate memory for a
-	// dynamically-sized buffer at this point.
-	const maxCPUs = 64 * 1024
-	var mask [maxCPUs / 8]byte
-	var mib [_CTL_MAXNAME]uint32
+	const maxcpus = 64
+	const maskSize = int(int(maxcpus+7) / 8)
+	var mask [16]byte
 
-	// According to FreeBSD's /usr/src/sys/kern/kern_cpuset.c,
-	// cpuset_getaffinity return ERANGE when provided buffer size exceed the limits in kernel.
-	// Querying kern.smp.maxcpus to calculate maximum buffer size.
-	// See https://bugs.freebsd.org/bugzilla/show_bug.cgi?id=200802
-
-	// Variable kern.smp.maxcpus introduced at Dec 23 2003, revision 123766,
-	// with dynamically assigned sysctl entries.
-	miblen := sysctlnametomib([]byte("kern.smp.maxcpus"), &mib)
-	if miblen == 0 {
-		return 1
-	}
-
-	// Query kern.smp.maxcpus.
-	dstsize := uintptr(4)
-	maxcpus := uint32(0)
-	if sysctl(&mib[0], miblen, (*byte)(unsafe.Pointer(&maxcpus)), &dstsize, nil, 0) != 0 {
-		return 1
-	}
-
-	maskSize := int(maxcpus+7) / 8
-	if maskSize < goarch.PtrSize {
-		maskSize = goarch.PtrSize
-	}
-	if maskSize > len(mask) {
-		maskSize = len(mask)
-	}
-
-	if cpuset_getaffinity(_CPU_LEVEL_WHICH, _CPU_WHICH_PID, _CPU_CURRENT_PID,
-		maskSize, (*byte)(unsafe.Pointer(&mask[0]))) != 0 {
+	if cpuset_getaffinity(_CPU_LEVEL_WHICH, _CPU_WHICH_PID, _CPU_CURRENT_PID, maskSize, (*byte)(unsafe.Pointer(&mask[0]))) != 0 {
 		return 1
 	}
 	n := int32(0)
@@ -146,14 +113,7 @@ func getCPUCount() int32 {
 }
 
 func getPageSize() uintptr {
-	mib := [2]uint32{_CTL_HW, _HW_PAGESIZE}
-	out := uint32(0)
-	nout := unsafe.Sizeof(out)
-	ret := sysctl(&mib[0], 2, (*byte)(unsafe.Pointer(&out)), &nout, nil, 0)
-	if ret >= 0 {
-		return uintptr(out)
-	}
-	return 0
+	return 0x4000
 }
 
 // FreeBSD's umtx_op syscall is effectively the same as Linux's futex, and
@@ -405,20 +365,6 @@ func validSIGPROF(mp *m, c *sigctxt) bool {
 }
 
 func sysargs(argc int32, argv **byte) {
-	n := argc + 1
-
-	// skip over argv, envp to get to auxv
-	for argv_index(argv, n) != nil {
-		n++
-	}
-
-	// skip NULL separator
-	n++
-
-	// now argv+n is auxv
-	auxvp := (*[1 << 28]uintptr)(add(unsafe.Pointer(argv), uintptr(n)*goarch.PtrSize))
-	pairs := sysauxv(auxvp[:])
-	auxv = auxvp[: pairs*2 : pairs*2]
 }
 
 const (
@@ -431,20 +377,7 @@ const (
 )
 
 func sysauxv(auxv []uintptr) (pairs int) {
-	var i int
-	for i = 0; auxv[i] != _AT_NULL; i += 2 {
-		tag, val := auxv[i], auxv[i+1]
-		switch tag {
-		// _AT_NCPUS from auxv shouldn't be used due to golang.org/issue/15206
-		case _AT_PAGESZ:
-			physPageSize = val
-		case _AT_TIMEKEEP:
-			timekeepSharedPage = (*vdsoTimekeep)(unsafe.Pointer(val))
-		}
-
-		archauxv(tag, val)
-	}
-	return i / 2
+	return 0
 }
 
 // sysSigaction calls the sigaction system call.
