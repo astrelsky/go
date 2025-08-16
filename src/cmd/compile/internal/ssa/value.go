@@ -139,7 +139,7 @@ func (v *Value) AuxValAndOff() ValAndOff {
 
 func (v *Value) AuxArm64BitField() arm64BitField {
 	if opcodeTable[v.Op].auxType != auxARM64BitField {
-		v.Fatalf("op %s doesn't have a ValAndOff aux field", v.Op)
+		v.Fatalf("op %s doesn't have a ARM64BitField aux field", v.Op)
 	}
 	return arm64BitField(v.AuxInt)
 }
@@ -200,8 +200,8 @@ func (v *Value) auxString() string {
 	case auxUInt8:
 		return fmt.Sprintf(" [%d]", v.AuxUInt8())
 	case auxARM64BitField:
-		lsb := v.AuxArm64BitField().getARM64BFlsb()
-		width := v.AuxArm64BitField().getARM64BFwidth()
+		lsb := v.AuxArm64BitField().lsb()
+		width := v.AuxArm64BitField().width()
 		return fmt.Sprintf(" [lsb=%d,width=%d]", lsb, width)
 	case auxFloat32, auxFloat64:
 		return fmt.Sprintf(" [%g]", v.AuxFloat())
@@ -228,7 +228,7 @@ func (v *Value) auxString() string {
 		}
 		return s + fmt.Sprintf(" [%s]", v.AuxValAndOff())
 	case auxCCop:
-		return fmt.Sprintf(" {%s}", Op(v.AuxInt))
+		return fmt.Sprintf(" [%s]", Op(v.AuxInt))
 	case auxS390XCCMask, auxS390XRotateParams:
 		return fmt.Sprintf(" {%v}", v.Aux)
 	case auxFlagConstant:
@@ -332,6 +332,13 @@ func (v *Value) SetArgs3(a, b, c *Value) {
 	v.AddArg(a)
 	v.AddArg(b)
 	v.AddArg(c)
+}
+func (v *Value) SetArgs4(a, b, c, d *Value) {
+	v.resetArgs()
+	v.AddArg(a)
+	v.AddArg(b)
+	v.AddArg(c)
+	v.AddArg(d)
 }
 
 func (v *Value) resetArgs() {
@@ -584,4 +591,37 @@ func AutoVar(v *Value) (*ir.Name, int64) {
 	// Assume it is a register, return its spill slot, which needs to be live
 	nameOff := v.Aux.(*AuxNameOffset)
 	return nameOff.Name, nameOff.Offset
+}
+
+// CanSSA reports whether values of type t can be represented as a Value.
+func CanSSA(t *types.Type) bool {
+	types.CalcSize(t)
+	if t.Size() > int64(4*types.PtrSize) {
+		// 4*Widthptr is an arbitrary constant. We want it
+		// to be at least 3*Widthptr so slices can be registerized.
+		// Too big and we'll introduce too much register pressure.
+		return false
+	}
+	switch t.Kind() {
+	case types.TARRAY:
+		// We can't do larger arrays because dynamic indexing is
+		// not supported on SSA variables.
+		// TODO: allow if all indexes are constant.
+		if t.NumElem() <= 1 {
+			return CanSSA(t.Elem())
+		}
+		return false
+	case types.TSTRUCT:
+		if t.NumFields() > MaxStruct {
+			return false
+		}
+		for _, t1 := range t.Fields() {
+			if !CanSSA(t1.Type) {
+				return false
+			}
+		}
+		return true
+	default:
+		return true
+	}
 }

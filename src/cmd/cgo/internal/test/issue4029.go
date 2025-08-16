@@ -2,16 +2,16 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-//go:build !windows && !static && (!darwin || (!internal_pie && !arm64))
+//go:build !windows && !static && !(darwin && internal)
 
-// Excluded in darwin internal linking PIE mode, as dynamic export is not
-// supported.
-// Excluded in internal linking mode on darwin/arm64, as it is always PIE.
+// Excluded in darwin internal linking PIE (which is the default) mode,
+// as dynamic export is not supported.
 
 package cgotest
 
 /*
 #include <stdint.h>
+#include <stdlib.h>
 #include <dlfcn.h>
 #cgo linux LDFLAGS: -ldl
 
@@ -25,6 +25,7 @@ import "C"
 
 import (
 	"testing"
+	"unsafe"
 )
 
 var callbacks int
@@ -67,7 +68,9 @@ func loadThySelf(t *testing.T, symbol string) {
 	}
 	defer C.dlclose4029(this_process)
 
-	symbol_address := C.dlsym4029(this_process, C.CString(symbol))
+	symCStr := C.CString(symbol)
+	defer C.free(unsafe.Pointer(symCStr))
+	symbol_address := C.dlsym4029(this_process, symCStr)
 	if symbol_address == 0 {
 		t.Error("dlsym:", C.GoString(C.dlerror()))
 		return

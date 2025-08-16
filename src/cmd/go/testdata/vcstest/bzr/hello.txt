@@ -1,6 +1,8 @@
+[!bzr] skip 'requires a working bzr client'
 handle bzr
 
 env BZR_EMAIL='Russ Cox <rsc@google.com>'
+env EMAIL='Russ Cox <rsc@google.com>'
 
 bzr init-repo .
 

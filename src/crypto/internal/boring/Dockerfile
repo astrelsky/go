@@ -13,10 +13,11 @@ WORKDIR /boring
 ENV LANG=C
 ENV LANGUAGE=
 
-# Following NIST submission draft for In Progress module validation.
+# Following the Security Policy for FIPS 140 certificate #4735.
+# https://csrc.nist.gov/CSRC/media/projects/cryptographic-module-validation-program/documents/security-policies/140sp4735.pdf
 # This corresponds to boringssl.googlesource.com/boringssl tag fips-20220613.
 RUN apt-get update && \
-        apt-get install --no-install-recommends -y cmake xz-utils wget unzip ca-certificates python lsb-release software-properties-common gnupg
+        apt-get install --no-install-recommends -y xz-utils wget unzip ca-certificates python lsb-release software-properties-common gnupg make libssl-dev faketime
 
 # Install Clang.
 ENV ClangV=14
@@ -36,6 +37,18 @@ RUN \
 	cd ninja-$NinjaV && \
 	CC=clang-$ClangV CXX=clang++-$ClangV ./configure.py --bootstrap && \
 	mv ninja /usr/local/bin/
+
+# Download, validate, unpack, build, and install Cmake.
+ENV CmakeV=3.22.1
+ENV CmakeH=0e998229549d7b3f368703d20e248e7ee1f853910d42704aa87918c213ea82c0
+RUN \
+	wget https://github.com/Kitware/CMake/releases/download/v$CmakeV/cmake-$CmakeV.tar.gz && \
+	echo "$CmakeH cmake-$CmakeV.tar.gz" >sha && sha256sum -c sha && \
+	tar -xzf cmake-$CmakeV.tar.gz && \
+	rm cmake-$CmakeV.tar.gz && \
+	cd cmake-$CmakeV && \
+	CC=clang-$ClangV CXX=clang++-$ClangV ./bootstrap && \
+	make && make install
 
 # Download, validate, unpack, and install Go.
 ARG GOARCH

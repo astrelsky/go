@@ -232,10 +232,7 @@ func deadcode(f *Func) {
 			f.NamedValues[*name] = values[:j]
 		}
 	}
-	clearNames := f.Names[i:]
-	for j := range clearNames {
-		clearNames[j] = nil
-	}
+	clear(f.Names[i:])
 	f.Names = f.Names[:i]
 
 	pendingLines := f.cachedLineStarts // Holds statement boundaries that need to be moved to a new value/block
@@ -303,15 +300,14 @@ func deadcode(f *Func) {
 		}
 	}
 	// zero remainder to help GC
-	tail := f.Blocks[i:]
-	for j := range tail {
-		tail[j] = nil
-	}
+	clear(f.Blocks[i:])
 	f.Blocks = f.Blocks[:i]
 }
 
 // removeEdge removes the i'th outgoing edge from b (and
 // the corresponding incoming edge from b.Succs[i].b).
+// Note that this potentially reorders successors of b, so it
+// must be used very carefully.
 func (b *Block) removeEdge(i int) {
 	e := b.Succs[i]
 	c := e.b

@@ -13,8 +13,8 @@ import (
 	"fmt"
 	"internal/abi"
 	"internal/buildcfg"
-	"os"
 	"path/filepath"
+	"strings"
 )
 
 const funcSize = 11 * 4 // funcSize is the size of the _func object in runtime/runtime2.go
@@ -99,6 +99,19 @@ func makePclntab(ctxt *Link, container loader.Bitmap) (*pclntab, []*sym.Compilat
 }
 
 func emitPcln(ctxt *Link, s loader.Sym, container loader.Bitmap) bool {
+	if ctxt.Target.IsRISCV64() {
+		// Avoid adding local symbols to the pcln table - RISC-V
+		// linking generates a very large number of these, particularly
+		// for HI20 symbols (which we need to load in order to be able
+		// to resolve relocations). Unnecessarily including all of
+		// these symbols quickly blows out the size of the pcln table
+		// and overflows hash buckets.
+		symName := ctxt.loader.SymName(s)
+		if symName == "" || strings.HasPrefix(symName, ".L") {
+			return false
+		}
+	}
+
 	// We want to generate func table entries only for the "lowest
 	// level" symbols, not containers of subsymbols.
 	return !container.Has(s)
@@ -130,8 +143,22 @@ func computeDeferReturn(ctxt *Link, deferReturnSym, s loader.Sym) uint32 {
 				// instruction).
 				deferreturn = uint32(r.Off())
 				switch target.Arch.Family {
-				case sys.AMD64, sys.I386:
+				case sys.I386:
 					deferreturn--
+					if ctxt.BuildMode == BuildModeShared || ctxt.linkShared || ctxt.BuildMode == BuildModePlugin {
+						// In this mode, we need to get the address from GOT,
+						// with two additional instructions like
+						//
+						// CALL    __x86.get_pc_thunk.bx(SB)       // 5 bytes
+						// LEAL    _GLOBAL_OFFSET_TABLE_<>(BX), BX // 6 bytes
+						//
+						// We need to back off to the get_pc_thunk call.
+						// (See progedit in cmd/internal/obj/x86/obj6.go)
+						deferreturn -= 11
+					}
+				case sys.AMD64:
+					deferreturn--
+
 				case sys.ARM, sys.ARM64, sys.Loong64, sys.MIPS, sys.MIPS64, sys.PPC64, sys.RISCV64:
 					// no change
 				case sys.S390X:
@@ -587,16 +614,36 @@ func (state pclntab) calculateFunctabSize(ctxt *Link, funcs []loader.Sym) (int64
 	return size, startLocations
 }
 
+// textOff computes the offset of a text symbol, relative to textStart,
+// similar to an R_ADDROFF relocation,  for various runtime metadata and
+// tables (see runtime/symtab.go:(*moduledata).textAddr).
+func textOff(ctxt *Link, s loader.Sym, textStart int64) uint32 {
+	ldr := ctxt.loader
+	off := ldr.SymValue(s) - textStart
+	if off < 0 {
+		panic(fmt.Sprintf("expected func %s(%x) to be placed at or after textStart (%x)", ldr.SymName(s), ldr.SymValue(s), textStart))
+	}
+	if ctxt.IsWasm() {
+		// On Wasm, the function table contains just the function index, whereas
+		// the "PC" (s's Value) is function index << 16 + block index (see
+		// ../wasm/asm.go:assignAddress).
+		if off&(1<<16-1) != 0 {
+			ctxt.Errorf(s, "nonzero PC_B at function entry: %#x", off)
+		}
+		off >>= 16
+	}
+	if int64(uint32(off)) != off {
+		ctxt.Errorf(s, "textOff overflow: %#x", off)
+	}
+	return uint32(off)
+}
+
 // writePCToFunc writes the PC->func lookup table.
 func writePCToFunc(ctxt *Link, sb *loader.SymbolBuilder, funcs []loader.Sym, startLocations []uint32) {
 	ldr := ctxt.loader
 	textStart := ldr.SymValue(ldr.Lookup("runtime.text", 0))
 	pcOff := func(s loader.Sym) uint32 {
-		off := ldr.SymValue(s) - textStart
-		if off < 0 {
-			panic(fmt.Sprintf("expected func %s(%x) to be placed at or after textStart (%x)", ldr.SymName(s), ldr.SymValue(s), textStart))
-		}
-		return uint32(off)
+		return textOff(ctxt, s, textStart)
 	}
 	for i, s := range funcs {
 		sb.SetUint32(ctxt.Arch, int64(i*2*4), pcOff(s))
@@ -605,7 +652,11 @@ func writePCToFunc(ctxt *Link, sb *loader.SymbolBuilder, funcs []loader.Sym, sta
 
 	// Final entry of table is just end pc offset.
 	lastFunc := funcs[len(funcs)-1]
-	sb.SetUint32(ctxt.Arch, int64(len(funcs))*2*4, pcOff(lastFunc)+uint32(ldr.SymSize(lastFunc)))
+	lastPC := pcOff(lastFunc) + uint32(ldr.SymSize(lastFunc))
+	if ctxt.IsWasm() {
+		lastPC = pcOff(lastFunc) + 1 // On Wasm it is function index (see above)
+	}
+	sb.SetUint32(ctxt.Arch, int64(len(funcs))*2*4, lastPC)
 }
 
 // writeFuncs writes the func structures and pcdata to runtime.functab.
@@ -619,7 +670,7 @@ func writeFuncs(ctxt *Link, sb *loader.SymbolBuilder, funcs []loader.Sym, inlSym
 	var pcsp, pcfile, pcline, pcinline loader.Sym
 	var pcdata []loader.Sym
 
-	// Write the individual func objects.
+	// Write the individual func objects (runtime._func struct).
 	for i, s := range funcs {
 		startLine := int32(0)
 		fi := ldr.FuncInfo(s)
@@ -631,10 +682,7 @@ func writeFuncs(ctxt *Link, sb *loader.SymbolBuilder, funcs []loader.Sym, inlSym
 
 		off := int64(startLocations[i])
 		// entryOff uint32 (offset of func entry PC from textStart)
-		entryOff := ldr.SymValue(s) - textStart
-		if entryOff < 0 {
-			panic(fmt.Sprintf("expected func %s(%x) to be placed before or at textStart (%x)", ldr.SymName(s), ldr.SymValue(s), textStart))
-		}
+		entryOff := textOff(ctxt, s, textStart)
 		off = sb.SetUint32(ctxt.Arch, off, uint32(entryOff))
 
 		// nameOff int32
@@ -713,6 +761,17 @@ func writeFuncs(ctxt *Link, sb *loader.SymbolBuilder, funcs []loader.Sym, inlSym
 		for j := range funcdata {
 			dataoff := off + int64(4*j)
 			fdsym := funcdata[j]
+
+			// cmd/internal/obj optimistically populates ArgsPointerMaps and
+			// ArgInfo for assembly functions, hoping that the compiler will
+			// emit appropriate symbols from their Go stub declarations. If
+			// it didn't though, just ignore it.
+			//
+			// TODO(cherryyz): Fix arg map generation (see discussion on CL 523335).
+			if fdsym != 0 && (j == abi.FUNCDATA_ArgsPointerMaps || j == abi.FUNCDATA_ArgInfo) && ldr.IsFromAssembly(s) && ldr.Data(fdsym) == nil {
+				fdsym = 0
+			}
+
 			if fdsym == 0 {
 				sb.SetUint32(ctxt.Arch, dataoff, ^uint32(0)) // ^0 is a sentinel for "no value"
 				continue
@@ -783,18 +842,10 @@ func (ctxt *Link) pclntab(container loader.Bitmap) *pclntab {
 	return state
 }
 
-func gorootFinal() string {
-	root := buildcfg.GOROOT
-	if final := os.Getenv("GOROOT_FINAL"); final != "" {
-		root = final
-	}
-	return root
-}
-
 func expandGoroot(s string) string {
 	const n = len("$GOROOT")
 	if len(s) >= n+1 && s[:n] == "$GOROOT" && (s[n] == '/' || s[n] == '\\') {
-		if final := gorootFinal(); final != "" {
+		if final := buildcfg.GOROOT; final != "" {
 			return filepath.ToSlash(filepath.Join(final, s[n:]))
 		}
 	}
@@ -802,9 +853,8 @@ func expandGoroot(s string) string {
 }
 
 const (
-	BUCKETSIZE    = 256 * MINFUNC
 	SUBBUCKETS    = 16
-	SUBBUCKETSIZE = BUCKETSIZE / SUBBUCKETS
+	SUBBUCKETSIZE = abi.FuncTabBucketSize / SUBBUCKETS
 	NOIDX         = 0x7fffffff
 )
 
@@ -822,7 +872,7 @@ func (ctxt *Link) findfunctab(state *pclntab, container loader.Bitmap) {
 	// that map to that subbucket.
 	n := int32((max - min + SUBBUCKETSIZE - 1) / SUBBUCKETSIZE)
 
-	nbuckets := int32((max - min + BUCKETSIZE - 1) / BUCKETSIZE)
+	nbuckets := int32((max - min + abi.FuncTabBucketSize - 1) / abi.FuncTabBucketSize)
 
 	size := 4*int64(nbuckets) + int64(n)
 
@@ -853,7 +903,7 @@ func (ctxt *Link) findfunctab(state *pclntab, container loader.Bitmap) {
 				q = ldr.SymValue(e)
 			}
 
-			//print("%d: [%lld %lld] %s\n", idx, p, q, s->name);
+			//fmt.Printf("%d: [%x %x] %s\n", idx, p, q, ldr.SymName(s))
 			for ; p < q; p += SUBBUCKETSIZE {
 				i = int((p - min) / SUBBUCKETSIZE)
 				if indexes[i] > idx {
@@ -872,16 +922,16 @@ func (ctxt *Link) findfunctab(state *pclntab, container loader.Bitmap) {
 		for i := int32(0); i < nbuckets; i++ {
 			base := indexes[i*SUBBUCKETS]
 			if base == NOIDX {
-				Errorf(nil, "hole in findfunctab")
+				Errorf("hole in findfunctab")
 			}
 			t.SetUint32(ctxt.Arch, int64(i)*(4+SUBBUCKETS), uint32(base))
 			for j := int32(0); j < SUBBUCKETS && i*SUBBUCKETS+j < n; j++ {
 				idx = indexes[i*SUBBUCKETS+j]
 				if idx == NOIDX {
-					Errorf(nil, "hole in findfunctab")
+					Errorf("hole in findfunctab")
 				}
 				if idx-base >= 256 {
-					Errorf(nil, "too many functions in a findfunc bucket! %d/%d %d %d", i, nbuckets, j, idx-base)
+					Errorf("too many functions in a findfunc bucket! %d/%d %d %d", i, nbuckets, j, idx-base)
 				}
 
 				t.SetUint8(ctxt.Arch, int64(i)*(4+SUBBUCKETS)+4+int64(j), uint8(idx-base))

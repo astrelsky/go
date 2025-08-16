@@ -448,6 +448,9 @@ func rewriteToUseGot(ctxt *obj.Link, p *obj.Prog, newprog obj.ProgAlloc) {
 		//
 		// We disable open-coded defers in buildssa() on 386 ONLY with shared
 		// libraries because of this extra code added before deferreturn calls.
+		//
+		// computeDeferReturn in cmd/link/internal/ld/pcln.go depends
+		// on the size of these instructions.
 		if ctxt.Arch.Family == sys.AMD64 || (p.To.Sym != nil && p.To.Sym.Local()) || p.RegTo2 != 0 {
 			return
 		}
@@ -1226,10 +1229,11 @@ func stacksplit(ctxt *obj.Link, cursym *obj.LSym, p *obj.Prog, newprog obj.ProgA
 		progedit(ctxt, callend.Link, newprog)
 	}
 
-	pcdata = cursym.Func().UnspillRegisterArgs(callend, newprog)
-	pcdata = ctxt.EndUnsafePoint(pcdata, newprog, -1)
+	// The instructions which unspill regs should be preemptible.
+	pcdata = ctxt.EndUnsafePoint(callend, newprog, -1)
+	unspill := cursym.Func().UnspillRegisterArgs(pcdata, newprog)
 
-	jmp := obj.Appendp(pcdata, newprog)
+	jmp := obj.Appendp(unspill, newprog)
 	jmp.As = obj.AJMP
 	jmp.To.Type = obj.TYPE_BRANCH
 	jmp.To.SetTarget(startPred.Link)

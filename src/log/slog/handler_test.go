@@ -10,8 +10,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog/internal/buffer"
+	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -436,9 +438,120 @@ func TestJSONAndTextHandlers(t *testing.T) {
 			wantText: `time.mins=3 time.secs=2 msg=message`,
 			wantJSON: `{"time":{"mins":3,"secs":2},"msg":"message"}`,
 		},
+		{
+			name:     "replace empty",
+			replace:  func([]string, Attr) Attr { return Attr{} },
+			attrs:    []Attr{Group("g", Int("a", 1))},
+			wantText: "",
+			wantJSON: `{}`,
+		},
+		{
+			name: "replace empty 1",
+			with: func(h Handler) Handler {
+				return h.WithGroup("g").WithAttrs([]Attr{Int("a", 1)})
+			},
+			replace:  func([]string, Attr) Attr { return Attr{} },
+			attrs:    []Attr{Group("h", Int("b", 2))},
+			wantText: "",
+			wantJSON: `{}`,
+		},
+		{
+			name: "replace empty 2",
+			with: func(h Handler) Handler {
+				return h.WithGroup("g").WithAttrs([]Attr{Int("a", 1)}).WithGroup("h").WithAttrs([]Attr{Int("b", 2)})
+			},
+			replace:  func([]string, Attr) Attr { return Attr{} },
+			attrs:    []Attr{Group("i", Int("c", 3))},
+			wantText: "",
+			wantJSON: `{}`,
+		},
+		{
+			name:     "replace empty 3",
+			with:     func(h Handler) Handler { return h.WithGroup("g") },
+			replace:  func([]string, Attr) Attr { return Attr{} },
+			attrs:    []Attr{Int("a", 1)},
+			wantText: "",
+			wantJSON: `{}`,
+		},
+		{
+			name: "replace empty inline",
+			with: func(h Handler) Handler {
+				return h.WithGroup("g").WithAttrs([]Attr{Int("a", 1)}).WithGroup("h").WithAttrs([]Attr{Int("b", 2)})
+			},
+			replace:  func([]string, Attr) Attr { return Attr{} },
+			attrs:    []Attr{Group("", Int("c", 3))},
+			wantText: "",
+			wantJSON: `{}`,
+		},
+		{
+			name: "replace partial empty attrs 1",
+			with: func(h Handler) Handler {
+				return h.WithGroup("g").WithAttrs([]Attr{Int("a", 1)}).WithGroup("h").WithAttrs([]Attr{Int("b", 2)})
+			},
+			replace: func(groups []string, attr Attr) Attr {
+				return removeKeys(TimeKey, LevelKey, MessageKey, "a")(groups, attr)
+			},
+			attrs:    []Attr{Group("i", Int("c", 3))},
+			wantText: "g.h.b=2 g.h.i.c=3",
+			wantJSON: `{"g":{"h":{"b":2,"i":{"c":3}}}}`,
+		},
+		{
+			name: "replace partial empty attrs 2",
+			with: func(h Handler) Handler {
+				return h.WithGroup("g").WithAttrs([]Attr{Int("a", 1)}).WithAttrs([]Attr{Int("n", 4)}).WithGroup("h").WithAttrs([]Attr{Int("b", 2)})
+			},
+			replace: func(groups []string, attr Attr) Attr {
+				return removeKeys(TimeKey, LevelKey, MessageKey, "a", "b")(groups, attr)
+			},
+			attrs:    []Attr{Group("i", Int("c", 3))},
+			wantText: "g.n=4 g.h.i.c=3",
+			wantJSON: `{"g":{"n":4,"h":{"i":{"c":3}}}}`,
+		},
+		{
+			name: "replace partial empty attrs 3",
+			with: func(h Handler) Handler {
+				return h.WithGroup("g").WithAttrs([]Attr{Int("x", 0)}).WithAttrs([]Attr{Int("a", 1)}).WithAttrs([]Attr{Int("n", 4)}).WithGroup("h").WithAttrs([]Attr{Int("b", 2)})
+			},
+			replace: func(groups []string, attr Attr) Attr {
+				return removeKeys(TimeKey, LevelKey, MessageKey, "a", "c")(groups, attr)
+			},
+			attrs:    []Attr{Group("i", Int("c", 3))},
+			wantText: "g.x=0 g.n=4 g.h.b=2",
+			wantJSON: `{"g":{"x":0,"n":4,"h":{"b":2}}}`,
+		},
+		{
+			name: "replace resolved group",
+			replace: func(groups []string, a Attr) Attr {
+				if a.Value.Kind() == KindGroup {
+					return Attr{"bad", IntValue(1)}
+				}
+				return removeKeys(TimeKey, LevelKey, MessageKey)(groups, a)
+			},
+			attrs:    []Attr{Any("name", logValueName{"Perry", "Platypus"})},
+			wantText: "name.first=Perry name.last=Platypus",
+			wantJSON: `{"name":{"first":"Perry","last":"Platypus"}}`,
+		},
+		{
+			name:    "group and key (or both) needs quoting",
+			replace: removeKeys(TimeKey, LevelKey),
+			attrs: []Attr{
+				Group("prefix",
+					String(" needs quoting ", "v"), String("NotNeedsQuoting", "v"),
+				),
+				Group("prefix needs quoting",
+					String(" needs quoting ", "v"), String("NotNeedsQuoting", "v"),
+				),
+			},
+			wantText: `msg=message "prefix. needs quoting "=v prefix.NotNeedsQuoting=v "prefix needs quoting. needs quoting "=v "prefix needs quoting.NotNeedsQuoting"=v`,
+			wantJSON: `{"msg":"message","prefix":{" needs quoting ":"v","NotNeedsQuoting":"v"},"prefix needs quoting":{" needs quoting ":"v","NotNeedsQuoting":"v"}}`,
+		},
 	} {
 		r := NewRecord(testTime, LevelInfo, "message", callerPC(2))
-		line := strconv.Itoa(r.source().Line)
+		source := r.Source()
+		if source == nil {
+			t.Fatal("source is nil")
+		}
+		line := strconv.Itoa(source.Line)
 		r.AddAttrs(test.attrs...)
 		var buf bytes.Buffer
 		opts := HandlerOptions{ReplaceAttr: test.replace, AddSource: test.addSource}
@@ -525,6 +638,40 @@ func TestHandlerEnabled(t *testing.T) {
 	}
 }
 
+func TestJSONAndTextHandlersWithUnavailableSource(t *testing.T) {
+	// Verify that a nil source does not cause a panic.
+	// and that the source is empty.
+	var buf bytes.Buffer
+	opts := &HandlerOptions{
+		ReplaceAttr: removeKeys(LevelKey),
+		AddSource:   true,
+	}
+
+	for _, test := range []struct {
+		name string
+		h    Handler
+		want string
+	}{
+		{"text", NewTextHandler(&buf, opts), "msg=message"},
+		{"json", NewJSONHandler(&buf, opts), `{"msg":"message"}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			buf.Reset()
+			r := NewRecord(time.Time{}, LevelInfo, "message", 0)
+			err := test.h.Handle(t.Context(), r)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			want := strings.TrimSpace(test.want)
+			got := strings.TrimSpace(buf.String())
+			if got != want {
+				t.Errorf("\ngot  %s\nwant %s", got, want)
+			}
+		})
+	}
+}
+
 func TestSecondWith(t *testing.T) {
 	// Verify that a second call to Logger.With does not corrupt
 	// the original.
@@ -603,11 +750,8 @@ func TestWriteTimeRFC3339(t *testing.T) {
 		time.Date(2000, 1, 2, 3, 4, 5, 400, time.Local),
 		time.Date(2000, 11, 12, 3, 4, 500, 5e7, time.UTC),
 	} {
+		got := string(appendRFC3339Millis(nil, tm))
 		want := tm.Format(rfc3339Millis)
-		buf := buffer.New()
-		defer buf.Free()
-		writeTimeRFC3339Millis(buf, tm)
-		got := buf.String()
 		if got != want {
 			t.Errorf("got %s, want %s", got, want)
 		}
@@ -615,12 +759,58 @@ func TestWriteTimeRFC3339(t *testing.T) {
 }
 
 func BenchmarkWriteTime(b *testing.B) {
-	buf := buffer.New()
-	defer buf.Free()
 	tm := time.Date(2022, 3, 4, 5, 6, 7, 823456789, time.Local)
 	b.ResetTimer()
+	var buf []byte
 	for i := 0; i < b.N; i++ {
-		writeTimeRFC3339Millis(buf, tm)
-		buf.Reset()
+		buf = appendRFC3339Millis(buf[:0], tm)
+	}
+}
+
+func TestDiscardHandler(t *testing.T) {
+	ctx := context.Background()
+	stdout, stderr := os.Stdout, os.Stderr
+	os.Stdout, os.Stderr = nil, nil // panic on write
+	t.Cleanup(func() {
+		os.Stdout, os.Stderr = stdout, stderr
+	})
+
+	// Just ensure nothing panics during normal usage
+	l := New(DiscardHandler)
+	l.Info("msg", "a", 1, "b", 2)
+	l.Debug("bg", Int("a", 1), "b", 2)
+	l.Warn("w", Duration("dur", 3*time.Second))
+	l.Error("bad", "a", 1)
+	l.Log(ctx, LevelWarn+1, "w", Int("a", 1), String("b", "two"))
+	l.LogAttrs(ctx, LevelInfo+1, "a b c", Int("a", 1), String("b", "two"))
+	l.Info("info", "a", []Attr{Int("i", 1)})
+	l.Info("info", "a", GroupValue(Int("i", 1)))
+}
+
+func BenchmarkAppendKey(b *testing.B) {
+	for _, size := range []int{5, 10, 30, 50, 100} {
+		for _, quoting := range []string{"no_quoting", "pre_quoting", "key_quoting", "both_quoting"} {
+			b.Run(fmt.Sprintf("%s_prefix_size_%d", quoting, size), func(b *testing.B) {
+				var (
+					hs     = NewJSONHandler(io.Discard, nil).newHandleState(buffer.New(), false, "")
+					prefix = bytes.Repeat([]byte("x"), size)
+					key    = "key"
+				)
+
+				if quoting == "pre_quoting" || quoting == "both_quoting" {
+					prefix[0] = '"'
+				}
+				if quoting == "key_quoting" || quoting == "both_quoting" {
+					key = "ke\""
+				}
+
+				hs.prefix = (*buffer.Buffer)(&prefix)
+
+				for b.Loop() {
+					hs.appendKey(key)
+					hs.buf.Reset()
+				}
+			})
+		}
 	}
 }

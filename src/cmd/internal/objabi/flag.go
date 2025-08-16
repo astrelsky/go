@@ -7,6 +7,7 @@ package objabi
 import (
 	"flag"
 	"fmt"
+	"internal/bisect"
 	"internal/buildcfg"
 	"io"
 	"log"
@@ -60,7 +61,7 @@ func expandArgs(in []string) (out []string) {
 			if err != nil {
 				log.Fatal(err)
 			}
-			args := strings.Split(strings.TrimSpace(strings.Replace(string(slurp), "\r", "", -1)), "\n")
+			args := strings.Split(strings.TrimSpace(strings.ReplaceAll(string(slurp), "\r", "")), "\n")
 			for i, arg := range args {
 				args[i] = DecodeArg(arg)
 			}
@@ -112,7 +113,7 @@ func (versionFlag) Set(s string) error {
 	// build ID of the binary, so that if the compiler is changed and
 	// rebuilt, we notice and rebuild all packages.
 	if s == "full" {
-		if strings.HasPrefix(buildcfg.Version, "devel") {
+		if strings.Contains(buildcfg.Version, "devel") {
 			p += " buildID=" + buildID
 		}
 	}
@@ -262,8 +263,8 @@ func NewDebugFlag(debug interface{}, debugSSA DebugSSA) *DebugFlag {
 
 		switch ptr.(type) {
 		default:
-			panic(fmt.Sprintf("debug.%s has invalid type %v (must be int or string)", f.Name, f.Type))
-		case *int, *string:
+			panic(fmt.Sprintf("debug.%s has invalid type %v (must be int, string, or *bisect.Matcher)", f.Name, f.Type))
+		case *int, *string, **bisect.Matcher:
 			// ok
 		}
 		flag.tab[name] = debugField{name, help, concurrent == "ok", ptr}
@@ -298,7 +299,7 @@ func (f *DebugFlag) Set(debugstr string) error {
 			nl := fmt.Sprintf("\n\t%-*s\t", maxLen, "")
 			for _, name := range names {
 				help := f.tab[name].help
-				fmt.Printf("\t%-*s\t%s\n", maxLen, name, strings.Replace(help, "\n", nl, -1))
+				fmt.Printf("\t%-*s\t%s\n", maxLen, name, strings.ReplaceAll(help, "\n", nl))
 			}
 			if f.debugSSA != nil {
 				// ssa options have their own help
@@ -328,6 +329,12 @@ func (f *DebugFlag) Set(debugstr string) error {
 					log.Fatalf("invalid debug value %v", name)
 				}
 				*vp = val
+			case **bisect.Matcher:
+				var err error
+				*vp, err = bisect.New(valstring)
+				if err != nil {
+					log.Fatalf("debug flag %v: %v", name, err)
+				}
 			default:
 				panic("bad debugtab type")
 			}
@@ -347,7 +354,7 @@ func (f *DebugFlag) Set(debugstr string) error {
 			}
 			err := f.debugSSA(phase, flag, val, valstring)
 			if err != "" {
-				log.Fatalf(err)
+				log.Fatal(err)
 			}
 			// Setting this false for -d=ssa/... preserves old behavior
 			// of turning off concurrency for any debug flags.

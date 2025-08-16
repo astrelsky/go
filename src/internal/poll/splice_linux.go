@@ -9,7 +9,6 @@ import (
 	"runtime"
 	"sync"
 	"syscall"
-	"unsafe"
 )
 
 const (
@@ -31,12 +30,10 @@ const (
 //
 // Splice gets a pipe buffer from the pool or creates a new one if needed, to serve as a buffer for the data transfer.
 // src and dst must both be stream-oriented sockets.
-//
-// If err != nil, sc is the system call which caused the error.
-func Splice(dst, src *FD, remain int64) (written int64, handled bool, sc string, err error) {
-	p, sc, err := getPipe()
+func Splice(dst, src *FD, remain int64) (written int64, handled bool, err error) {
+	p, err := getPipe()
 	if err != nil {
-		return 0, false, sc, err
+		return 0, false, err
 	}
 	defer putPipe(p)
 	var inPipe, n int
@@ -71,9 +68,9 @@ func Splice(dst, src *FD, remain int64) (written int64, handled bool, sc string,
 		}
 	}
 	if err != nil {
-		return written, handled, "splice", err
+		return written, handled, err
 	}
-	return written, true, "", nil
+	return written, true, nil
 }
 
 // spliceDrain moves data from a socket to a pipe.
@@ -181,10 +178,7 @@ type splicePipeFields struct {
 
 type splicePipe struct {
 	splicePipeFields
-
-	// We want to use a finalizer, so ensure that the size is
-	// large enough to not use the tiny allocator.
-	_ [24 - unsafe.Sizeof(splicePipeFields{})%24]byte
+	cleanup runtime.Cleanup
 }
 
 // splicePipePool caches pipes to avoid high-frequency construction and destruction of pipe buffers.
@@ -199,27 +193,27 @@ func newPoolPipe() any {
 	if p == nil {
 		return nil
 	}
-	runtime.SetFinalizer(p, destroyPipe)
+
+	p.cleanup = runtime.AddCleanup(p, func(spf splicePipeFields) {
+		destroyPipe(&splicePipe{splicePipeFields: spf})
+	}, p.splicePipeFields)
 	return p
 }
 
 // getPipe tries to acquire a pipe buffer from the pool or create a new one with newPipe() if it gets nil from the cache.
-//
-// Note that it may fail to create a new pipe buffer by newPipe(), in which case getPipe() will return a generic error
-// and system call name splice in a string as the indication.
-func getPipe() (*splicePipe, string, error) {
+func getPipe() (*splicePipe, error) {
 	v := splicePipePool.Get()
 	if v == nil {
-		return nil, "splice", syscall.EINVAL
+		return nil, syscall.EINVAL
 	}
-	return v.(*splicePipe), "", nil
+	return v.(*splicePipe), nil
 }
 
 func putPipe(p *splicePipe) {
 	// If there is still data left in the pipe,
 	// then close and discard it instead of putting it back into the pool.
 	if p.data != 0 {
-		runtime.SetFinalizer(p, nil)
+		p.cleanup.Stop()
 		destroyPipe(p)
 		return
 	}

@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-//go:generate go test . -run=TestGenerated -fix
+//go:generate go test . -run=^TestGenerated$ -fix
 
 package platform
 
@@ -23,10 +23,10 @@ func (p OSArch) String() string {
 func RaceDetectorSupported(goos, goarch string) bool {
 	switch goos {
 	case "linux":
-		return goarch == "amd64" || goarch == "ppc64le" || goarch == "arm64" || goarch == "s390x"
+		return goarch == "amd64" || goarch == "ppc64le" || goarch == "arm64" || goarch == "s390x" || goarch == "loong64"
 	case "darwin":
 		return goarch == "amd64" || goarch == "arm64"
-	case "freebsd", "netbsd", "openbsd", "windows":
+	case "freebsd", "netbsd", "windows":
 		return goarch == "amd64"
 	default:
 		return false
@@ -38,7 +38,7 @@ func RaceDetectorSupported(goos, goarch string) bool {
 func MSanSupported(goos, goarch string) bool {
 	switch goos {
 	case "linux":
-		return goarch == "amd64" || goarch == "arm64"
+		return goarch == "amd64" || goarch == "arm64" || goarch == "loong64"
 	case "freebsd":
 		return goarch == "amd64"
 	default:
@@ -51,7 +51,7 @@ func MSanSupported(goos, goarch string) bool {
 func ASanSupported(goos, goarch string) bool {
 	switch goos {
 	case "linux":
-		return goarch == "arm64" || goarch == "amd64" || goarch == "riscv64" || goarch == "ppc64le"
+		return goarch == "arm64" || goarch == "amd64" || goarch == "loong64" || goarch == "riscv64" || goarch == "ppc64le"
 	default:
 		return false
 	}
@@ -61,7 +61,7 @@ func ASanSupported(goos, goarch string) bool {
 // ('go test -fuzz=.').
 func FuzzSupported(goos, goarch string) bool {
 	switch goos {
-	case "darwin", "freebsd", "linux", "windows":
+	case "darwin", "freebsd", "linux", "openbsd", "windows":
 		return true
 	default:
 		return false
@@ -72,7 +72,7 @@ func FuzzSupported(goos, goarch string) bool {
 // instrumentation. (FuzzInstrumented implies FuzzSupported.)
 func FuzzInstrumented(goos, goarch string) bool {
 	switch goarch {
-	case "amd64", "arm64":
+	case "amd64", "arm64", "loong64":
 		// TODO(#14565): support more architectures.
 		return FuzzSupported(goos, goarch)
 	default:
@@ -85,9 +85,7 @@ func FuzzInstrumented(goos, goarch string) bool {
 func MustLinkExternal(goos, goarch string, withCgo bool) bool {
 	if withCgo {
 		switch goarch {
-		case "loong64",
-			"mips", "mipsle", "mips64", "mips64le",
-			"riscv64":
+		case "mips", "mipsle", "mips64", "mips64le":
 			// Internally linking cgo is incomplete on some architectures.
 			// https://go.dev/issue/14449
 			return true
@@ -99,7 +97,9 @@ func MustLinkExternal(goos, goarch string, withCgo bool) bool {
 		case "ppc64":
 			// Big Endian PPC64 cgo internal linking is not implemented for aix or linux.
 			// https://go.dev/issue/8912
-			return true
+			if goos == "aix" || goos == "linux" {
+				return true
+			}
 		}
 
 		switch goos {
@@ -173,7 +173,8 @@ func BuildModeSupported(compiler, buildmode, goos, goarch string) bool {
 			"android/amd64", "android/arm", "android/arm64", "android/386",
 			"freebsd/amd64",
 			"darwin/amd64", "darwin/arm64",
-			"windows/amd64", "windows/386", "windows/arm64":
+			"windows/amd64", "windows/386", "windows/arm64",
+			"wasip1/wasm":
 			return true
 		}
 		return false
@@ -192,6 +193,7 @@ func BuildModeSupported(compiler, buildmode, goos, goarch string) bool {
 			"darwin/amd64", "darwin/arm64",
 			"ios/amd64", "ios/arm64",
 			"aix/ppc64",
+			"openbsd/arm64",
 			"windows/386", "windows/amd64", "windows/arm", "windows/arm64":
 			return true
 		}
@@ -206,7 +208,7 @@ func BuildModeSupported(compiler, buildmode, goos, goarch string) bool {
 
 	case "plugin":
 		switch platform {
-		case "linux/amd64", "linux/arm", "linux/arm64", "linux/386", "linux/s390x", "linux/ppc64le",
+		case "linux/amd64", "linux/arm", "linux/arm64", "linux/386", "linux/loong64", "linux/riscv64", "linux/s390x", "linux/ppc64le",
 			"android/amd64", "android/386",
 			"darwin/amd64", "darwin/arm64",
 			"freebsd/amd64", "prospero/amd64":
@@ -223,8 +225,7 @@ func InternalLinkPIESupported(goos, goarch string) bool {
 	switch goos + "/" + goarch {
 	case "android/arm64",
 		"darwin/amd64", "darwin/arm64",
-		"linux/amd64", "linux/arm64", "linux/ppc64le",
-		"prospero/amd64",
+		"linux/amd64", "linux/arm64", "linux/loong64", "linux/ppc64le",
 		"windows/386", "windows/amd64", "windows/arm", "windows/arm64":
 		return true
 	}
@@ -246,8 +247,6 @@ func DefaultPIE(goos, goarch string, isRace bool) bool {
 		}
 		return true
 	case "darwin":
-		return goarch == "arm64"
-	case "prospero":
 		return true
 	}
 	return false
@@ -282,7 +281,7 @@ func FirstClass(goos, goarch string) bool {
 	return distInfo[OSArch{goos, goarch}].FirstClass
 }
 
-// Broken reportsr whether goos/goarch is considered a broken port.
+// Broken reports whether goos/goarch is considered a broken port.
 // (See https://go.dev/wiki/PortingPolicy#broken-ports.)
 func Broken(goos, goarch string) bool {
 	return distInfo[OSArch{goos, goarch}].Broken

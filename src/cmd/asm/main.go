@@ -20,22 +20,25 @@ import (
 	"cmd/internal/bio"
 	"cmd/internal/obj"
 	"cmd/internal/objabi"
+	"cmd/internal/telemetry/counter"
 )
 
 func main() {
 	log.SetFlags(0)
 	log.SetPrefix("asm: ")
+	counter.Open()
 
 	buildcfg.Check()
 	GOARCH := buildcfg.GOARCH
 
 	flags.Parse()
+	counter.Inc("asm/invocations")
+	counter.CountFlags("asm/flag:", *flag.CommandLine)
 
 	architecture := arch.Set(GOARCH, *flags.Shared || *flags.Dynlink)
 	if architecture == nil {
 		log.Fatalf("unrecognized architecture %s", GOARCH)
 	}
-
 	ctxt := obj.Linknew(architecture.LinkArch)
 	ctxt.Debugasm = flags.PrintOut
 	ctxt.Debugvlog = flags.DebugV
@@ -46,6 +49,7 @@ func main() {
 	ctxt.Debugpcln = flags.DebugFlags.PCTab
 	ctxt.IsAsm = true
 	ctxt.Pkgpath = *flags.Importpath
+	ctxt.DwTextCount = objabi.DummyDwarfFunctionCountForAssembler()
 	switch *flags.Spectre {
 	default:
 		log.Printf("unknown setting -spectre=%s", *flags.Spectre)
@@ -76,12 +80,19 @@ func main() {
 		fmt.Fprintf(buf, "!\n")
 	}
 
+	// Set macros for GOEXPERIMENTs so we can easily switch
+	// runtime assembly code based on them.
+	if objabi.LookupPkgSpecial(ctxt.Pkgpath).AllowAsmABI {
+		for _, exp := range buildcfg.Experiment.Enabled() {
+			flags.D = append(flags.D, "GOEXPERIMENT_"+exp)
+		}
+	}
+
 	var ok, diag bool
 	var failedFile string
 	for _, f := range flag.Args() {
 		lexer := lex.NewLexer(f)
-		parser := asm.NewParser(ctxt, architecture, lexer,
-			*flags.CompilingRuntime)
+		parser := asm.NewParser(ctxt, architecture, lexer)
 		ctxt.DiagFunc = func(format string, args ...interface{}) {
 			diag = true
 			log.Printf(format, args...)
@@ -93,7 +104,7 @@ func main() {
 			pList.Firstpc, ok = parser.Parse()
 			// reports errors to parser.Errorf
 			if ok {
-				obj.Flushplist(ctxt, pList, nil, *flags.Importpath)
+				obj.Flushplist(ctxt, pList, nil)
 			}
 		}
 		if !ok {

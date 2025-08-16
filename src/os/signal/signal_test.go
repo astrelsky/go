@@ -53,7 +53,7 @@ func init() {
 		// Older linux kernels seem to have some hiccups delivering the signal
 		// in a timely manner on ppc64 and ppc64le. When running on a
 		// ppc64le/ubuntu 16.04/linux 4.4 host the time can vary quite
-		// substantially even on a idle system. 5 seconds is twice any value
+		// substantially even on an idle system. 5 seconds is twice any value
 		// observed when running 10000 tests on such a system.
 		settleTime = 5 * time.Second
 	} else if s := os.Getenv("GO_TEST_TIMEOUT_SCALE"); s != "" {
@@ -304,7 +304,7 @@ func TestDetectNohup(t *testing.T) {
 		// We have no intention of reading from c.
 		c := make(chan os.Signal, 1)
 		Notify(c, syscall.SIGHUP)
-		if out, err := testenv.Command(t, os.Args[0], "-test.run=TestDetectNohup", "-check_sighup_ignored").CombinedOutput(); err == nil {
+		if out, err := testenv.Command(t, testenv.Executable(t), "-test.run=^TestDetectNohup$", "-check_sighup_ignored").CombinedOutput(); err == nil {
 			t.Errorf("ran test with -check_sighup_ignored and it succeeded: expected failure.\nOutput:\n%s", out)
 		}
 		Stop(c)
@@ -316,7 +316,7 @@ func TestDetectNohup(t *testing.T) {
 		}
 		Ignore(syscall.SIGHUP)
 		os.Remove("nohup.out")
-		out, err := testenv.Command(t, "/usr/bin/nohup", os.Args[0], "-test.run=TestDetectNohup", "-check_sighup_ignored").CombinedOutput()
+		out, err := testenv.Command(t, "/usr/bin/nohup", testenv.Executable(t), "-test.run=^TestDetectNohup$", "-check_sighup_ignored").CombinedOutput()
 
 		data, _ := os.ReadFile("nohup.out")
 		os.Remove("nohup.out")
@@ -447,14 +447,14 @@ func TestNohup(t *testing.T) {
 
 				args := []string{
 					"-test.v",
-					"-test.run=TestStop",
+					"-test.run=^TestStop$",
 					"-send_uncaught_sighup=" + strconv.Itoa(i),
 					"-die_from_sighup",
 				}
 				if subTimeout != 0 {
 					args = append(args, fmt.Sprintf("-test.timeout=%v", subTimeout))
 				}
-				out, err := testenv.Command(t, os.Args[0], args...).CombinedOutput()
+				out, err := testenv.Command(t, testenv.Executable(t), args...).CombinedOutput()
 
 				if err == nil {
 					t.Errorf("ran test with -send_uncaught_sighup=%d and it succeeded: expected failure.\nOutput:\n%s", i, out)
@@ -497,7 +497,7 @@ func TestNohup(t *testing.T) {
 				args := []string{
 					os.Args[0],
 					"-test.v",
-					"-test.run=TestStop",
+					"-test.run=^TestStop$",
 					"-send_uncaught_sighup=" + strconv.Itoa(i),
 				}
 				if subTimeout != 0 {
@@ -562,7 +562,7 @@ func TestAtomicStop(t *testing.T) {
 		if deadline, ok := t.Deadline(); ok {
 			timeout = time.Until(deadline).String()
 		}
-		cmd := testenv.Command(t, os.Args[0], "-test.run=TestAtomicStop", "-test.timeout="+timeout)
+		cmd := testenv.Command(t, testenv.Executable(t), "-test.run=^TestAtomicStop$", "-test.timeout="+timeout)
 		cmd.Env = append(os.Environ(), "GO_TEST_ATOMIC_STOP=1")
 		out, err := cmd.CombinedOutput()
 		if err == nil {
@@ -758,14 +758,14 @@ func TestNotifyContextNotifications(t *testing.T) {
 
 			args := []string{
 				"-test.v",
-				"-test.run=TestNotifyContextNotifications$",
+				"-test.run=^TestNotifyContextNotifications$",
 				"-check_notify_ctx",
 				fmt.Sprintf("-ctx_notify_times=%d", tc.n),
 			}
 			if subTimeout != 0 {
 				args = append(args, fmt.Sprintf("-test.timeout=%v", subTimeout))
 			}
-			out, err := testenv.Command(t, os.Args[0], args...).CombinedOutput()
+			out, err := testenv.Command(t, testenv.Executable(t), args...).CombinedOutput()
 			if err != nil {
 				t.Errorf("ran test with -check_notify_ctx_notification and it failed with %v.\nOutput:\n%s", err, out)
 			}
@@ -797,13 +797,9 @@ func TestNotifyContextStop(t *testing.T) {
 	}
 
 	stop()
-	select {
-	case <-c.Done():
-		if got := c.Err(); got != context.Canceled {
-			t.Errorf("c.Err() = %q, want %q", got, context.Canceled)
-		}
-	case <-time.After(time.Second):
-		t.Errorf("timed out waiting for context to be done after calling stop")
+	<-c.Done()
+	if got := c.Err(); got != context.Canceled {
+		t.Errorf("c.Err() = %q, want %q", got, context.Canceled)
 	}
 }
 
@@ -818,13 +814,9 @@ func TestNotifyContextCancelParent(t *testing.T) {
 	}
 
 	cancelParent()
-	select {
-	case <-c.Done():
-		if got := c.Err(); got != context.Canceled {
-			t.Errorf("c.Err() = %q, want %q", got, context.Canceled)
-		}
-	case <-time.After(time.Second):
-		t.Errorf("timed out waiting for parent context to be canceled")
+	<-c.Done()
+	if got := c.Err(); got != context.Canceled {
+		t.Errorf("c.Err() = %q, want %q", got, context.Canceled)
 	}
 }
 
@@ -840,13 +832,9 @@ func TestNotifyContextPrematureCancelParent(t *testing.T) {
 		t.Errorf("c.String() = %q, want %q", got, want)
 	}
 
-	select {
-	case <-c.Done():
-		if got := c.Err(); got != context.Canceled {
-			t.Errorf("c.Err() = %q, want %q", got, context.Canceled)
-		}
-	case <-time.After(time.Second):
-		t.Errorf("timed out waiting for parent context to be canceled")
+	<-c.Done()
+	if got := c.Err(); got != context.Canceled {
+		t.Errorf("c.Err() = %q, want %q", got, context.Canceled)
 	}
 }
 
@@ -868,13 +856,9 @@ func TestNotifyContextSimultaneousStop(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	select {
-	case <-c.Done():
-		if got := c.Err(); got != context.Canceled {
-			t.Errorf("c.Err() = %q, want %q", got, context.Canceled)
-		}
-	case <-time.After(time.Second):
-		t.Errorf("expected context to be canceled")
+	<-c.Done()
+	if got := c.Err(); got != context.Canceled {
+		t.Errorf("c.Err() = %q, want %q", got, context.Canceled)
 	}
 }
 
@@ -920,7 +904,6 @@ func TestSignalTrace(t *testing.T) {
 		if err := trace.Start(buf); err != nil {
 			t.Fatalf("[%d] failed to start tracing: %v", i, err)
 		}
-		time.After(1 * time.Microsecond)
 		trace.Stop()
 		size := buf.Len()
 		if size == 0 {

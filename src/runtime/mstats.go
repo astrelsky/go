@@ -7,7 +7,8 @@
 package runtime
 
 import (
-	"runtime/internal/atomic"
+	"internal/runtime/atomic"
+	"internal/runtime/gc"
 	"unsafe"
 )
 
@@ -31,7 +32,7 @@ type mstats struct {
 
 	// Statistics about the garbage collector.
 
-	// Protected by mheap or stopping the world during GC.
+	// Protected by mheap or worldsema during GC.
 	last_gc_unix    uint64 // last gc (in unix time)
 	pause_total_ns  uint64
 	pause_ns        [256]uint64 // circular buffer of recent gc pause lengths
@@ -43,13 +44,9 @@ type mstats struct {
 	last_gc_nanotime uint64 // last gc (monotonic time)
 	lastHeapInUse    uint64 // heapInUse at mark termination of the previous GC
 
-	enablegc bool
+	lastScanStats [gc.NumSizeClasses]sizeClassScanStats
 
-	// gcPauseDist represents the distribution of all GC-related
-	// application pauses in the runtime.
-	//
-	// Each individual pause is counted separately, unlike pause_ns.
-	gcPauseDist timeHistogram
+	enablegc bool
 }
 
 var memstats mstats
@@ -358,13 +355,13 @@ func init() {
 // collection cycle.
 func ReadMemStats(m *MemStats) {
 	_ = m.Alloc // nil check test before we switch stacks, see issue 61158
-	stopTheWorld(stwReadMemStats)
+	stw := stopTheWorld(stwReadMemStats)
 
 	systemstack(func() {
 		readmemstats_m(m)
 	})
 
-	startTheWorld()
+	startTheWorld(stw)
 }
 
 // doubleCheckReadMemStats controls a double-check mode for ReadMemStats that
@@ -403,23 +400,23 @@ func readmemstats_m(stats *MemStats) {
 	nFree := consStats.largeFreeCount
 
 	// Collect per-sizeclass stats.
-	var bySize [_NumSizeClasses]struct {
+	var bySize [gc.NumSizeClasses]struct {
 		Size    uint32
 		Mallocs uint64
 		Frees   uint64
 	}
 	for i := range bySize {
-		bySize[i].Size = uint32(class_to_size[i])
+		bySize[i].Size = uint32(gc.SizeClassToSize[i])
 
 		// Malloc stats.
 		a := consStats.smallAllocCount[i]
-		totalAlloc += a * uint64(class_to_size[i])
+		totalAlloc += a * uint64(gc.SizeClassToSize[i])
 		nMalloc += a
 		bySize[i].Mallocs = a
 
 		// Free stats.
 		f := consStats.smallFreeCount[i]
-		totalFree += f * uint64(class_to_size[i])
+		totalFree += f * uint64(gc.SizeClassToSize[i])
 		nFree += f
 		bySize[i].Frees = f
 	}
@@ -437,12 +434,11 @@ func readmemstats_m(stats *MemStats) {
 
 	stackInUse := uint64(consStats.inStacks)
 	gcWorkBufInUse := uint64(consStats.inWorkBufs)
-	gcProgPtrScalarBitsInUse := uint64(consStats.inPtrScalarBits)
 
 	totalMapped := gcController.heapInUse.load() + gcController.heapFree.load() + gcController.heapReleased.load() +
 		memstats.stacks_sys.load() + memstats.mspan_sys.load() + memstats.mcache_sys.load() +
 		memstats.buckhash_sys.load() + memstats.gcMiscSys.load() + memstats.other_sys.load() +
-		stackInUse + gcWorkBufInUse + gcProgPtrScalarBitsInUse
+		stackInUse + gcWorkBufInUse
 
 	heapGoal := gcController.heapGoal()
 
@@ -456,7 +452,7 @@ func readmemstats_m(stats *MemStats) {
 		//
 		// * memstats.heapInUse == inHeap
 		// * memstats.heapReleased == released
-		// * memstats.heapInUse + memstats.heapFree == committed - inStacks - inWorkBufs - inPtrScalarBits
+		// * memstats.heapInUse + memstats.heapFree == committed - inStacks - inWorkBufs
 		// * memstats.totalAlloc == totalAlloc
 		// * memstats.totalFree == totalFree
 		//
@@ -477,7 +473,7 @@ func readmemstats_m(stats *MemStats) {
 			throw("heapReleased and consistent stats are not equal")
 		}
 		heapRetained := gcController.heapInUse.load() + gcController.heapFree.load()
-		consRetained := uint64(consStats.committed - consStats.inStacks - consStats.inWorkBufs - consStats.inPtrScalarBits)
+		consRetained := uint64(consStats.committed - consStats.inStacks - consStats.inWorkBufs)
 		if heapRetained != consRetained {
 			print("runtime: global value=", heapRetained, "\n")
 			print("runtime: consistent value=", consRetained, "\n")
@@ -528,8 +524,8 @@ func readmemstats_m(stats *MemStats) {
 	//
 	// or
 	//
-	// HeapSys = sys - stacks_inuse - gcWorkBufInUse - gcProgPtrScalarBitsInUse
-	// HeapIdle = sys - stacks_inuse - gcWorkBufInUse - gcProgPtrScalarBitsInUse - heapInUse
+	// HeapSys = sys - stacks_inuse - gcWorkBufInUse
+	// HeapIdle = sys - stacks_inuse - gcWorkBufInUse - heapInUse
 	//
 	// => HeapIdle = HeapSys - heapInUse = heapFree + heapReleased
 	stats.HeapIdle = gcController.heapFree.load() + gcController.heapReleased.load()
@@ -548,7 +544,7 @@ func readmemstats_m(stats *MemStats) {
 	// MemStats defines GCSys as an aggregate of all memory related
 	// to the memory management system, but we track this memory
 	// at a more granular level in the runtime.
-	stats.GCSys = memstats.gcMiscSys.load() + gcWorkBufInUse + gcProgPtrScalarBitsInUse
+	stats.GCSys = memstats.gcMiscSys.load() + gcWorkBufInUse
 	stats.OtherSys = memstats.other_sys.load()
 	stats.NextGC = heapGoal
 	stats.LastGC = memstats.last_gc_unix
@@ -673,24 +669,23 @@ func (s *sysMemStat) add(n int64) {
 // consistent with one another.
 type heapStatsDelta struct {
 	// Memory stats.
-	committed       int64 // byte delta of memory committed
-	released        int64 // byte delta of released memory generated
-	inHeap          int64 // byte delta of memory placed in the heap
-	inStacks        int64 // byte delta of memory reserved for stacks
-	inWorkBufs      int64 // byte delta of memory reserved for work bufs
-	inPtrScalarBits int64 // byte delta of memory reserved for unrolled GC prog bits
+	committed  int64 // byte delta of memory committed
+	released   int64 // byte delta of released memory generated
+	inHeap     int64 // byte delta of memory placed in the heap
+	inStacks   int64 // byte delta of memory reserved for stacks
+	inWorkBufs int64 // byte delta of memory reserved for work bufs
 
 	// Allocator stats.
 	//
 	// These are all uint64 because they're cumulative, and could quickly wrap
 	// around otherwise.
-	tinyAllocCount  uint64                  // number of tiny allocations
-	largeAlloc      uint64                  // bytes allocated for large objects
-	largeAllocCount uint64                  // number of large object allocations
-	smallAllocCount [_NumSizeClasses]uint64 // number of allocs for small objects
-	largeFree       uint64                  // bytes freed for large objects (>maxSmallSize)
-	largeFreeCount  uint64                  // number of frees for large objects (>maxSmallSize)
-	smallFreeCount  [_NumSizeClasses]uint64 // number of frees for small objects (<=maxSmallSize)
+	tinyAllocCount  uint64                    // number of tiny allocations
+	largeAlloc      uint64                    // bytes allocated for large objects
+	largeAllocCount uint64                    // number of large object allocations
+	smallAllocCount [gc.NumSizeClasses]uint64 // number of allocs for small objects
+	largeFree       uint64                    // bytes freed for large objects (>maxSmallSize)
+	largeFreeCount  uint64                    // number of frees for large objects (>maxSmallSize)
+	smallFreeCount  [gc.NumSizeClasses]uint64 // number of frees for small objects (<=maxSmallSize)
 
 	// NOTE: This struct must be a multiple of 8 bytes in size because it
 	// is stored in an array. If it's not, atomic accesses to the above
@@ -704,7 +699,6 @@ func (a *heapStatsDelta) merge(b *heapStatsDelta) {
 	a.inHeap += b.inHeap
 	a.inStacks += b.inStacks
 	a.inWorkBufs += b.inWorkBufs
-	a.inPtrScalarBits += b.inPtrScalarBits
 
 	a.tinyAllocCount += b.tinyAllocCount
 	a.largeAlloc += b.largeAlloc
@@ -840,9 +834,7 @@ func (m *consistentHeapStats) unsafeRead(out *heapStatsDelta) {
 func (m *consistentHeapStats) unsafeClear() {
 	assertWorldStopped()
 
-	for i := range m.stats {
-		m.stats[i] = heapStatsDelta{}
-	}
+	clear(m.stats[:])
 }
 
 // read takes a globally consistent snapshot of m
@@ -911,20 +903,30 @@ type cpuStats struct {
 	// they don't accurately compute on-CPU time (so some of the time
 	// could be spent scheduled away by the OS).
 
-	gcAssistTime    int64 // GC assists
-	gcDedicatedTime int64 // GC dedicated mark workers + pauses
-	gcIdleTime      int64 // GC idle mark workers
-	gcPauseTime     int64 // GC pauses (all GOMAXPROCS, even if just 1 is running)
-	gcTotalTime     int64
+	GCAssistTime    int64 // GC assists
+	GCDedicatedTime int64 // GC dedicated mark workers + pauses
+	GCIdleTime      int64 // GC idle mark workers
+	GCPauseTime     int64 // GC pauses (all GOMAXPROCS, even if just 1 is running)
+	GCTotalTime     int64
 
-	scavengeAssistTime int64 // background scavenger
-	scavengeBgTime     int64 // scavenge assists
-	scavengeTotalTime  int64
+	ScavengeAssistTime int64 // background scavenger
+	ScavengeBgTime     int64 // scavenge assists
+	ScavengeTotalTime  int64
 
-	idleTime int64 // Time Ps spent in _Pidle.
-	userTime int64 // Time Ps spent in _Prunning or _Psyscall that's not any of the above.
+	IdleTime int64 // Time Ps spent in _Pidle.
+	UserTime int64 // Time Ps spent in _Prunning or _Psyscall that's not any of the above.
 
-	totalTime int64 // GOMAXPROCS * (monotonic wall clock time elapsed)
+	TotalTime int64 // GOMAXPROCS * (monotonic wall clock time elapsed)
+}
+
+// accumulateGCPauseTime add dt*stwProcs to the GC CPU pause time stats. dt should be
+// the actual time spent paused, for orthogonality. maxProcs should be GOMAXPROCS,
+// not work.stwprocs, since this number must be comparable to a total time computed
+// from GOMAXPROCS.
+func (s *cpuStats) accumulateGCPauseTime(dt int64, maxProcs int32) {
+	cpu := dt * int64(maxProcs)
+	s.GCPauseTime += cpu
+	s.GCTotalTime += cpu
 }
 
 // accumulate takes a cpuStats and adds in the current state of all GC CPU
@@ -957,19 +959,19 @@ func (s *cpuStats) accumulate(now int64, gcMarkPhase bool) {
 	scavBgCpu := scavenge.backgroundTime.Load()
 
 	// Update cumulative GC CPU stats.
-	s.gcAssistTime += markAssistCpu
-	s.gcDedicatedTime += markDedicatedCpu + markFractionalCpu
-	s.gcIdleTime += markIdleCpu
-	s.gcTotalTime += markAssistCpu + markDedicatedCpu + markFractionalCpu + markIdleCpu
+	s.GCAssistTime += markAssistCpu
+	s.GCDedicatedTime += markDedicatedCpu + markFractionalCpu
+	s.GCIdleTime += markIdleCpu
+	s.GCTotalTime += markAssistCpu + markDedicatedCpu + markFractionalCpu + markIdleCpu
 
 	// Update cumulative scavenge CPU stats.
-	s.scavengeAssistTime += scavAssistCpu
-	s.scavengeBgTime += scavBgCpu
-	s.scavengeTotalTime += scavAssistCpu + scavBgCpu
+	s.ScavengeAssistTime += scavAssistCpu
+	s.ScavengeBgTime += scavBgCpu
+	s.ScavengeTotalTime += scavAssistCpu + scavBgCpu
 
 	// Update total CPU.
-	s.totalTime = sched.totaltime + (now-sched.procresizetime)*int64(gomaxprocs)
-	s.idleTime += sched.idleTime.Load()
+	s.TotalTime = sched.totaltime + (now-sched.procresizetime)*int64(gomaxprocs)
+	s.IdleTime += sched.idleTime.Load()
 
 	// Compute userTime. We compute this indirectly as everything that's not the above.
 	//
@@ -979,5 +981,5 @@ func (s *cpuStats) accumulate(now int64, gcMarkPhase bool) {
 	// else via sysmon. Meanwhile if we subtract GC time from whatever's left, we get non-GC
 	// _Prunning time. Note that this still leaves time spent in sweeping and in the scheduler,
 	// but that's fine. The overwhelming majority of this time will be actual user time.
-	s.userTime = s.totalTime - (s.gcTotalTime + s.scavengeTotalTime + s.idleTime)
+	s.UserTime = s.TotalTime - (s.GCTotalTime + s.ScavengeTotalTime + s.IdleTime)
 }

@@ -11,7 +11,7 @@
 #include "libcgo.h"
 #include "libcgo_windows.h"
 
-static void threadentry(void*);
+static unsigned long __stdcall threadentry(void*);
 static void (*setg_gcc)(void*);
 static DWORD *tls_g;
 
@@ -29,7 +29,9 @@ _cgo_sys_thread_start(ThreadStart *ts)
 	_cgo_beginthread(threadentry, ts);
 }
 
-static void
+extern void crosscall1(void (*fn)(void), void (*setg_gcc)(void*), void *g);
+static unsigned long
+__stdcall
 threadentry(void *v)
 {
 	ThreadStart ts;
@@ -47,5 +49,6 @@ threadentry(void *v)
 	  :: "r"(ts.tls), "r"(*tls_g)
 	);
 
-	crosscall_amd64(ts.fn, setg_gcc, (void*)ts.g);
+	crosscall1(ts.fn, setg_gcc, (void*)ts.g);
+	return 0;
 }

@@ -8,15 +8,20 @@ import (
 	"bufio"
 	"bytes"
 	"debug/macho"
+	"errors"
 	"internal/platform"
 	"internal/testenv"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
+	imacho "cmd/internal/macho"
+	"cmd/internal/objfile"
 	"cmd/internal/sys"
 )
 
@@ -41,7 +46,9 @@ func TestIssue21703(t *testing.T) {
 	t.Parallel()
 
 	testenv.MustHaveGoBuild(t)
-	testenv.MustInternalLink(t, false)
+	// N.B. the build below explictly doesn't pass through
+	// -asan/-msan/-race, so we don't care about those.
+	testenv.MustInternalLink(t, testenv.NoSpecialBuildTypes)
 
 	const source = `
 package main
@@ -86,7 +93,9 @@ func TestIssue28429(t *testing.T) {
 	t.Parallel()
 
 	testenv.MustHaveGoBuild(t)
-	testenv.MustInternalLink(t, false)
+	// N.B. go build below explictly doesn't pass through
+	// -asan/-msan/-race, so we don't care about those.
+	testenv.MustInternalLink(t, testenv.NoSpecialBuildTypes)
 
 	tmpdir := t.TempDir()
 
@@ -184,7 +193,9 @@ main.x: relocation target main.zero not defined
 func TestIssue33979(t *testing.T) {
 	testenv.MustHaveGoBuild(t)
 	testenv.MustHaveCGO(t)
-	testenv.MustInternalLink(t, true)
+	// N.B. go build below explictly doesn't pass through
+	// -asan/-msan/-race, so we don't care about those.
+	testenv.MustInternalLink(t, testenv.SpecialBuildTypes{Cgo: true})
 
 	t.Parallel()
 
@@ -265,9 +276,9 @@ func TestBuildForTvOS(t *testing.T) {
 	testenv.MustHaveCGO(t)
 	testenv.MustHaveGoBuild(t)
 
-	// Only run this on darwin/amd64, where we can cross build for tvOS.
-	if runtime.GOARCH != "amd64" || runtime.GOOS != "darwin" {
-		t.Skip("skipping on non-darwin/amd64 platform")
+	// Only run this on darwin, where we can cross build for tvOS.
+	if runtime.GOOS != "darwin" {
+		t.Skip("skipping on non-darwin platform")
 	}
 	if testing.Short() && os.Getenv("GO_BUILDER_NAME") == "" {
 		t.Skip("skipping in -short mode with $GO_BUILDER_NAME empty")
@@ -296,14 +307,16 @@ func TestBuildForTvOS(t *testing.T) {
 
 	ar := filepath.Join(tmpDir, "lib.a")
 	cmd := testenv.Command(t, testenv.GoToolPath(t), "build", "-buildmode=c-archive", "-o", ar, lib)
-	cmd.Env = append(os.Environ(),
+	env := []string{
 		"CGO_ENABLED=1",
 		"GOOS=ios",
 		"GOARCH=arm64",
-		"CC="+strings.Join(CC, " "),
+		"CC=" + strings.Join(CC, " "),
 		"CGO_CFLAGS=", // ensure CGO_CFLAGS does not contain any flags. Issue #35459
-		"CGO_LDFLAGS="+strings.Join(CGO_LDFLAGS, " "),
-	)
+		"CGO_LDFLAGS=" + strings.Join(CGO_LDFLAGS, " "),
+	}
+	cmd.Env = append(os.Environ(), env...)
+	t.Logf("%q %v", env, cmd)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("%v: %v:\n%s", cmd.Args, err, out)
 	}
@@ -312,6 +325,7 @@ func TestBuildForTvOS(t *testing.T) {
 	link.Args = append(link.Args, CGO_LDFLAGS...)
 	link.Args = append(link.Args, "-o", filepath.Join(tmpDir, "a.out")) // Avoid writing to package directory.
 	link.Args = append(link.Args, ar, filepath.Join("testdata", "testBuildFortvOS", "main.m"))
+	t.Log(link)
 	if out, err := link.CombinedOutput(); err != nil {
 		t.Fatalf("%v: %v:\n%s", link.Args, err, out)
 	}
@@ -343,7 +357,7 @@ func TestXFlag(t *testing.T) {
 	}
 }
 
-var testMachOBuildVersionSrc = `
+var trivialSrc = `
 package main
 func main() { }
 `
@@ -356,7 +370,7 @@ func TestMachOBuildVersion(t *testing.T) {
 	tmpdir := t.TempDir()
 
 	src := filepath.Join(tmpdir, "main.go")
-	err := os.WriteFile(src, []byte(testMachOBuildVersionSrc), 0666)
+	err := os.WriteFile(src, []byte(trivialSrc), 0666)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -381,17 +395,16 @@ func TestMachOBuildVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	found := false
-	const LC_BUILD_VERSION = 0x32
 	checkMin := func(ver uint32) {
-		major, minor := (ver>>16)&0xff, (ver>>8)&0xff
-		if major != 10 || minor < 9 {
-			t.Errorf("LC_BUILD_VERSION version %d.%d < 10.9", major, minor)
+		major, minor, patch := (ver>>16)&0xff, (ver>>8)&0xff, (ver>>0)&0xff
+		if major < 12 {
+			t.Errorf("LC_BUILD_VERSION version %d.%d.%d < 12.0.0", major, minor, patch)
 		}
 	}
 	for _, cmd := range exem.Loads {
 		raw := cmd.Raw()
 		type_ := exem.ByteOrder.Uint32(raw)
-		if type_ != LC_BUILD_VERSION {
+		if type_ != imacho.LC_BUILD_VERSION {
 			continue
 		}
 		osVer := exem.ByteOrder.Uint32(raw[12:])
@@ -403,6 +416,78 @@ func TestMachOBuildVersion(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("no LC_BUILD_VERSION load command found")
+	}
+}
+
+func TestMachOUUID(t *testing.T) {
+	testenv.MustHaveGoBuild(t)
+	if runtime.GOOS != "darwin" {
+		t.Skip("this is only for darwin")
+	}
+
+	t.Parallel()
+
+	tmpdir := t.TempDir()
+
+	src := filepath.Join(tmpdir, "main.go")
+	err := os.WriteFile(src, []byte(trivialSrc), 0666)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	extractUUID := func(exe string) string {
+		exem, err := macho.Open(exe)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer exem.Close()
+		for _, cmd := range exem.Loads {
+			raw := cmd.Raw()
+			type_ := exem.ByteOrder.Uint32(raw)
+			if type_ != imacho.LC_UUID {
+				continue
+			}
+			return string(raw[8:24])
+		}
+		return ""
+	}
+
+	tests := []struct{ name, ldflags, expect string }{
+		{"default", "", "gobuildid"},
+		{"gobuildid", "-B=gobuildid", "gobuildid"},
+		{"specific", "-B=0x0123456789ABCDEF0123456789ABCDEF", "\x01\x23\x45\x67\x89\xAB\xCD\xEF\x01\x23\x45\x67\x89\xAB\xCD\xEF"},
+		{"none", "-B=none", ""},
+	}
+	if testenv.HasCGO() {
+		for _, test := range tests {
+			t1 := test
+			t1.name += "_external"
+			t1.ldflags += " -linkmode=external"
+			tests = append(tests, t1)
+		}
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			exe := filepath.Join(tmpdir, test.name)
+			cmd := testenv.Command(t, testenv.GoToolPath(t), "build", "-ldflags="+test.ldflags, "-o", exe, src)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("%v: %v:\n%s", cmd.Args, err, out)
+			}
+			uuid := extractUUID(exe)
+			if test.expect == "gobuildid" {
+				// Go buildid is not known in source code. Check UUID is present,
+				// and satisfies UUIDv3.
+				if uuid == "" {
+					t.Fatal("expect nonempty UUID, got empty")
+				}
+				// The version number is the high 4 bits of byte 6.
+				if uuid[6]>>4 != 3 {
+					t.Errorf("expect v3 UUID, got %X (version %d)", uuid, uuid[6]>>4)
+				}
+			} else if uuid != test.expect {
+				t.Errorf("UUID mismatch: got %X, want %X", uuid, test.expect)
+			}
+		})
 	}
 }
 
@@ -623,7 +708,6 @@ func TestFuncAlign(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Build and run with old object file format.
 	cmd := testenv.Command(t, testenv.GoToolPath(t), "build", "-o", "falign")
 	cmd.Dir = tmpdir
 	out, err := cmd.CombinedOutput()
@@ -638,6 +722,87 @@ func TestFuncAlign(t *testing.T) {
 	if string(out) != "PASS" {
 		t.Errorf("unexpected output: %s\n", out)
 	}
+}
+
+const testFuncAlignOptionSrc = `
+package main
+//go:noinline
+func foo() {
+}
+//go:noinline
+func bar() {
+}
+//go:noinline
+func baz() {
+}
+func main() {
+	foo()
+	bar()
+	baz()
+}
+`
+
+// TestFuncAlignOption verifies that the -funcalign option changes the function alignment
+func TestFuncAlignOption(t *testing.T) {
+	testenv.MustHaveGoBuild(t)
+
+	t.Parallel()
+
+	tmpdir := t.TempDir()
+
+	src := filepath.Join(tmpdir, "falign.go")
+	err := os.WriteFile(src, []byte(testFuncAlignOptionSrc), 0666)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	alignTest := func(align uint64) {
+		exeName := "falign.exe"
+		cmd := testenv.Command(t, testenv.GoToolPath(t), "build", "-ldflags=-funcalign="+strconv.FormatUint(align, 10), "-o", exeName, "falign.go")
+		cmd.Dir = tmpdir
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Errorf("build failed: %v \n%s", err, out)
+		}
+		exe := filepath.Join(tmpdir, exeName)
+		cmd = testenv.Command(t, exe)
+		out, err = cmd.CombinedOutput()
+		if err != nil {
+			t.Errorf("failed to run with err %v, output: %s", err, out)
+		}
+
+		// Check function alignment
+		f, err := objfile.Open(exe)
+		if err != nil {
+			t.Fatalf("failed to open file:%v\n", err)
+		}
+		defer f.Close()
+
+		fname := map[string]bool{"_main.foo": false,
+			"_main.bar": false,
+			"_main.baz": false}
+		syms, err := f.Symbols()
+		for _, s := range syms {
+			fn := s.Name
+			if _, ok := fname[fn]; !ok {
+				fn = "_" + s.Name
+				if _, ok := fname[fn]; !ok {
+					continue
+				}
+			}
+			if s.Addr%align != 0 {
+				t.Fatalf("unaligned function: %s %x. Expected alignment: %d\n", fn, s.Addr, align)
+			}
+			fname[fn] = true
+		}
+		for k, v := range fname {
+			if !v {
+				t.Fatalf("function %s not found\n", k)
+			}
+		}
+	}
+	alignTest(16)
+	alignTest(32)
 }
 
 const testTrampSrc = `
@@ -666,7 +831,7 @@ func TestTrampoline(t *testing.T) {
 	// calls will use trampolines.
 	buildmodes := []string{"default"}
 	switch runtime.GOARCH {
-	case "arm", "arm64", "ppc64":
+	case "arm", "arm64", "ppc64", "loong64":
 	case "ppc64le":
 		// Trampolines are generated differently when internal linking PIE, test them too.
 		buildmodes = append(buildmodes, "pie")
@@ -701,6 +866,14 @@ func TestTrampoline(t *testing.T) {
 		if string(out) != "hello\n" {
 			t.Errorf("unexpected output (%s):\n%s", mode, out)
 		}
+
+		out, err = testenv.Command(t, testenv.GoToolPath(t), "tool", "nm", exe).CombinedOutput()
+		if err != nil {
+			t.Errorf("nm failure: %s\n%s\n", err, string(out))
+		}
+		if ok, _ := regexp.Match("T runtime.deferreturn(\\+0)?-tramp0", out); !ok {
+			t.Errorf("Trampoline T runtime.deferreturn(+0)?-tramp0 is missing")
+		}
 	}
 }
 
@@ -723,7 +896,7 @@ func TestTrampolineCgo(t *testing.T) {
 	// calls will use trampolines.
 	buildmodes := []string{"default"}
 	switch runtime.GOARCH {
-	case "arm", "arm64", "ppc64":
+	case "arm", "arm64", "ppc64", "loong64":
 	case "ppc64le":
 		// Trampolines are generated differently when internal linking PIE, test them too.
 		buildmodes = append(buildmodes, "pie")
@@ -786,7 +959,9 @@ func TestIndexMismatch(t *testing.T) {
 	// This shouldn't happen with "go build". We invoke the compiler and the linker
 	// manually, and try to "trick" the linker with an inconsistent object file.
 	testenv.MustHaveGoBuild(t)
-	testenv.MustInternalLink(t, false)
+	// N.B. the build below explictly doesn't pass through
+	// -asan/-msan/-race, so we don't care about those.
+	testenv.MustInternalLink(t, testenv.NoSpecialBuildTypes)
 
 	t.Parallel()
 
@@ -1167,6 +1342,86 @@ func TestUnlinkableObj(t *testing.T) {
 	}
 }
 
+func TestExtLinkCmdlineDeterminism(t *testing.T) {
+	// Test that we pass flags in deterministic order to the external linker
+	testenv.MustHaveGoBuild(t)
+	testenv.MustHaveCGO(t) // this test requires -linkmode=external
+	t.Parallel()
+
+	// test source code, with some cgo exports
+	testSrc := `
+package main
+import "C"
+//export F1
+func F1() {}
+//export F2
+func F2() {}
+//export F3
+func F3() {}
+func main() {}
+`
+
+	tmpdir := t.TempDir()
+	src := filepath.Join(tmpdir, "x.go")
+	if err := os.WriteFile(src, []byte(testSrc), 0666); err != nil {
+		t.Fatal(err)
+	}
+	exe := filepath.Join(tmpdir, "x.exe")
+
+	// Use a deterministic tmp directory so the temporary file paths are
+	// deterministic.
+	linktmp := filepath.Join(tmpdir, "linktmp")
+	if err := os.Mkdir(linktmp, 0777); err != nil {
+		t.Fatal(err)
+	}
+
+	// Link with -v -linkmode=external to see the flags we pass to the
+	// external linker.
+	ldflags := "-ldflags=-v -linkmode=external -tmpdir=" + linktmp
+	var out0 []byte
+	for i := 0; i < 5; i++ {
+		cmd := testenv.Command(t, testenv.GoToolPath(t), "build", ldflags, "-o", exe, src)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("build failed: %v, output:\n%s", err, out)
+		}
+		if err := os.Remove(exe); err != nil {
+			t.Fatal(err)
+		}
+
+		// extract the "host link" invocation
+		j := bytes.Index(out, []byte("\nhost link:"))
+		if j == -1 {
+			t.Fatalf("host link step not found, output:\n%s", out)
+		}
+		out = out[j+1:]
+		k := bytes.Index(out, []byte("\n"))
+		if k == -1 {
+			t.Fatalf("no newline after host link, output:\n%s", out)
+		}
+		out = out[:k]
+
+		// filter out output file name, which is passed by the go
+		// command and is nondeterministic.
+		fs := bytes.Fields(out)
+		for i, f := range fs {
+			if bytes.Equal(f, []byte(`"-o"`)) && i+1 < len(fs) {
+				fs[i+1] = []byte("a.out")
+				break
+			}
+		}
+		out = bytes.Join(fs, []byte{' '})
+
+		if i == 0 {
+			out0 = out
+			continue
+		}
+		if !bytes.Equal(out0, out) {
+			t.Fatalf("output differ:\n%s\n==========\n%s", out0, out)
+		}
+	}
+}
+
 // TestResponseFile tests that creating a response file to pass to the
 // external linker works correctly.
 func TestResponseFile(t *testing.T) {
@@ -1207,5 +1462,225 @@ func TestResponseFile(t *testing.T) {
 	}
 	if err != nil {
 		t.Error(err)
+	}
+}
+
+func TestDynimportVar(t *testing.T) {
+	// Test that we can access dynamically imported variables.
+	// Currently darwin only.
+	if runtime.GOOS != "darwin" {
+		t.Skip("skip on non-darwin platform")
+	}
+
+	testenv.MustHaveGoBuild(t)
+	testenv.MustHaveCGO(t)
+
+	t.Parallel()
+
+	tmpdir := t.TempDir()
+	exe := filepath.Join(tmpdir, "a.exe")
+	src := filepath.Join("testdata", "dynimportvar", "main.go")
+
+	for _, mode := range []string{"internal", "external"} {
+		cmd := testenv.Command(t, testenv.GoToolPath(t), "build", "-ldflags=-linkmode="+mode, "-o", exe, src)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("build (linkmode=%s) failed: %v\n%s", mode, err, out)
+		}
+		cmd = testenv.Command(t, exe)
+		out, err = cmd.CombinedOutput()
+		if err != nil {
+			t.Errorf("executable failed to run (%s): %v\n%s", mode, err, out)
+		}
+	}
+}
+
+const helloSrc = `
+package main
+var X = 42
+var Y int
+func main() { println("hello", X, Y) }
+`
+
+func TestFlagS(t *testing.T) {
+	// Test that the -s flag strips the symbol table.
+	testenv.MustHaveGoBuild(t)
+
+	t.Parallel()
+
+	tmpdir := t.TempDir()
+	exe := filepath.Join(tmpdir, "a.exe")
+	src := filepath.Join(tmpdir, "a.go")
+	err := os.WriteFile(src, []byte(helloSrc), 0666)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	modes := []string{"auto"}
+	if testenv.HasCGO() {
+		modes = append(modes, "external")
+	}
+
+	// check a text symbol, a data symbol, and a BSS symbol
+	syms := []string{"main.main", "main.X", "main.Y"}
+
+	for _, mode := range modes {
+		cmd := testenv.Command(t, testenv.GoToolPath(t), "build", "-ldflags=-s -linkmode="+mode, "-o", exe, src)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("build (linkmode=%s) failed: %v\n%s", mode, err, out)
+		}
+		cmd = testenv.Command(t, testenv.GoToolPath(t), "tool", "nm", exe)
+		out, err = cmd.CombinedOutput()
+		if err != nil && !errors.As(err, new(*exec.ExitError)) {
+			// Error exit is fine as it may have no symbols.
+			// On darwin we need to emit dynamic symbol references so it
+			// actually has some symbols, and nm succeeds.
+			t.Errorf("(mode=%s) go tool nm failed: %v\n%s", mode, err, out)
+		}
+		for _, s := range syms {
+			if bytes.Contains(out, []byte(s)) {
+				t.Errorf("(mode=%s): unexpected symbol %s", mode, s)
+			}
+		}
+	}
+}
+
+func TestRandLayout(t *testing.T) {
+	// Test that the -randlayout flag randomizes function order and
+	// generates a working binary.
+	testenv.MustHaveGoBuild(t)
+
+	t.Parallel()
+
+	tmpdir := t.TempDir()
+
+	src := filepath.Join(tmpdir, "hello.go")
+	err := os.WriteFile(src, []byte(trivialSrc), 0666)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var syms [2]string
+	for i, seed := range []string{"123", "456"} {
+		exe := filepath.Join(tmpdir, "hello"+seed+".exe")
+		cmd := testenv.Command(t, testenv.GoToolPath(t), "build", "-ldflags=-randlayout="+seed, "-o", exe, src)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("seed=%v: build failed: %v\n%s", seed, err, out)
+		}
+		cmd = testenv.Command(t, exe)
+		err = cmd.Run()
+		if err != nil {
+			t.Fatalf("seed=%v: executable failed to run: %v\n%s", seed, err, out)
+		}
+		cmd = testenv.Command(t, testenv.GoToolPath(t), "tool", "nm", exe)
+		out, err = cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("seed=%v: fail to run \"go tool nm\": %v\n%s", seed, err, out)
+		}
+		syms[i] = string(out)
+	}
+	if syms[0] == syms[1] {
+		t.Errorf("randlayout with different seeds produced same layout:\n%s\n===\n\n%s", syms[0], syms[1])
+	}
+}
+
+func TestCheckLinkname(t *testing.T) {
+	// Test that code containing blocked linknames does not build.
+	testenv.MustHaveGoBuild(t)
+	t.Parallel()
+
+	tmpdir := t.TempDir()
+
+	tests := []struct {
+		src string
+		ok  bool
+	}{
+		// use (instantiation) of public API is ok
+		{"ok.go", true},
+		// push linkname is ok
+		{"push.go", true},
+		// using a linknamed variable to reference an assembly
+		// function in the same package is ok
+		{"textvar", true},
+		// pull linkname of blocked symbol is not ok
+		{"coro.go", false},
+		{"coro_var.go", false},
+		// assembly reference is not ok
+		{"coro_asm", false},
+		// pull-only linkname is not ok
+		{"coro2.go", false},
+		// pull linkname of a builtin symbol is not ok
+		{"builtin.go", false},
+		// legacy bad linkname is ok, for now
+		{"fastrand.go", true},
+		{"badlinkname.go", true},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.src, func(t *testing.T) {
+			t.Parallel()
+			src := "./testdata/linkname/" + test.src
+			exe := filepath.Join(tmpdir, test.src+".exe")
+			cmd := testenv.Command(t, testenv.GoToolPath(t), "build", "-o", exe, src)
+			out, err := cmd.CombinedOutput()
+			if test.ok && err != nil {
+				t.Errorf("build failed unexpectedly: %v:\n%s", err, out)
+			}
+			if !test.ok && err == nil {
+				t.Errorf("build succeeded unexpectedly: %v:\n%s", err, out)
+			}
+		})
+	}
+}
+
+func TestLinknameBSS(t *testing.T) {
+	// Test that the linker chooses the right one as the definition
+	// for linknamed variables. See issue #72032.
+	testenv.MustHaveGoBuild(t)
+	t.Parallel()
+
+	tmpdir := t.TempDir()
+
+	src := filepath.Join("testdata", "linkname", "sched.go")
+	exe := filepath.Join(tmpdir, "sched.exe")
+	cmd := testenv.Command(t, testenv.GoToolPath(t), "build", "-o", exe, src)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("build failed unexpectedly: %v:\n%s", err, out)
+	}
+
+	// Check the symbol size.
+	f, err := objfile.Open(exe)
+	if err != nil {
+		t.Fatalf("fail to open executable: %v", err)
+	}
+	defer f.Close()
+	syms, err := f.Symbols()
+	if err != nil {
+		t.Fatalf("fail to get symbols: %v", err)
+	}
+	found := false
+	for _, s := range syms {
+		if s.Name == "runtime.sched" || s.Name == "_runtime.sched" {
+			found = true
+			if s.Size < 100 {
+				// As of Go 1.25 (Mar 2025), runtime.sched has 6848 bytes on
+				// darwin/arm64. It should always be larger than 100 bytes on
+				// all platforms.
+				t.Errorf("runtime.sched symbol size too small: want > 100, got %d", s.Size)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("runtime.sched symbol not found")
+	}
+
+	// Executable should run.
+	cmd = testenv.Command(t, exe)
+	out, err = cmd.CombinedOutput()
+	if err != nil {
+		t.Errorf("executable failed to run: %v\n%s", err, out)
 	}
 }
