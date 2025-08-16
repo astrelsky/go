@@ -2099,6 +2099,9 @@
 // Using GOOS=ios matches build tags and files as for GOOS=darwin
 // in addition to ios tags and files.
 //
+// Using GOOS=prospero matches build tags and files as for GOOS=freebsd
+// in addition to ios tags and files.
+//
 // The defined architecture feature build tags are:
 //
 //   - For GOARCH=386, GO386=387 and GO386=sse2

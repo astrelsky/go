@@ -856,6 +856,7 @@ func (ctxt *Context) eval(x constraint.Expr, allTags map[string]bool) bool {
 //	ctxt.Compiler
 //	linux (if GOOS == android)
 //	solaris (if GOOS == illumos)
+//	freebsd (if GOOS == prospero)
 //	tag (if tag is listed in ctxt.BuildTags or ctxt.ReleaseTags)
 //
 // It records all consulted tags in allTags.
@@ -878,6 +879,9 @@ func (ctxt *Context) matchTag(name string, allTags map[string]bool) bool {
 		return true
 	}
 	if ctxt.GOOS == "ios" && name == "darwin" {
+		return true
+	}
+	if ctxt.GOOS == "prospero" && name == "freebsd" {
 		return true
 	}
 	if name == "unix" && syslist.UnixOS[ctxt.GOOS] {
@@ -906,6 +910,7 @@ func (ctxt *Context) matchTag(name string, allTags map[string]bool) bool {
 // Exceptions:
 // if GOOS=android, then files with GOOS=linux are also matched.
 // if GOOS=illumos, then files with GOOS=solaris are also matched.
+// if GOOS=prospero, then files with GOOS=freebsd are also matched.
 // if GOOS=ios, then files with GOOS=darwin are also matched.
 func (ctxt *Context) goodOSArchFile(name string, allTags map[string]bool) bool {
 	name, _, _ = strings.Cut(name, ".")

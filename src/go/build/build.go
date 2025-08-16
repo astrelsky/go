@@ -1977,14 +1977,14 @@ func (ctxt *Context) matchTag(name string, allTags map[string]bool) bool {
 	if ctxt.GOOS == "ios" && name == "darwin" {
 		return true
 	}
+	if ctxt.GOOS == "prospero" && name == "freebsd" {
+		return true
+	}
 	if name == "unix" && syslist.UnixOS[ctxt.GOOS] {
 		return true
 	}
 	if name == "boringcrypto" {
 		name = "goexperiment.boringcrypto" // boringcrypto is an old name for goexperiment.boringcrypto
-	}
-	if name == "freebsd" {
-		return ctxt.GOOS == "freebsd" || ctxt.GOOS == "prospero"
 	}
 
 	// other tags

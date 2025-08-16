@@ -213,8 +213,8 @@ func matchTag(name string, tags map[string]bool, prefer bool) bool {
 		return tags["illumos"]
 	case "darwin":
 		return tags["ios"]
-	case "prospero":
-		return tags["freebsd"]
+	case "freebsd":
+		return tags["prospero"]
 	case "unix":
 		return syslist.UnixOS[cfg.BuildContext.GOOS]
 	default:
@@ -268,6 +268,7 @@ func Eval(x constraint.Expr, tags map[string]bool, prefer bool) bool {
 //	if GOOS=android, then files with GOOS=linux are also matched.
 //	if GOOS=illumos, then files with GOOS=solaris are also matched.
 //	if GOOS=ios, then files with GOOS=darwin are also matched.
+//	if GOOS=prospero, then files with GOOS=freebsd are also matched.
 //
 // If tags["*"] is true, then MatchFile will consider all possible
 // GOOS and GOARCH to be available and will consequently

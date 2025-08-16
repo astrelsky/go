@@ -108,7 +108,7 @@ var distInfo = map[OSArch]osArchInfo{
 	{"plan9", "386"}:       {},
 	{"plan9", "amd64"}:     {},
 	{"plan9", "arm"}:       {},
-	{"prospero", "amd64"}:  {CgoSupported: true},
+	{"prospero", "amd64"}:  {CgoSupported: false},
 	{"solaris", "amd64"}:   {CgoSupported: true},
 	{"wasip1", "wasm"}:     {},
 	{"windows", "386"}:     {CgoSupported: true, FirstClass: true},

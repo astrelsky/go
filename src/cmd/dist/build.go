@@ -1121,6 +1121,9 @@ func shouldbuild(file, pkg string) bool {
 			if x == ok || (ok == "android" && x == "linux") || (ok == "illumos" && x == "solaris") || (ok == "ios" && x == "darwin") {
 				continue
 			}
+			if ok == "prospero" && x == "freebsd" {
+				continue
+			}
 			i := strings.Index(name, x)
 			if i <= 0 || name[i-1] != '_' {
 				continue
