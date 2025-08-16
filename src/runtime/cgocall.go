@@ -132,7 +132,7 @@ var ncgocall uint64 // number of cgo calls in total for dead m
 //go:linkname cgocall
 //go:nosplit
 func cgocall(fn, arg unsafe.Pointer) int32 {
-	if !iscgo && GOOS != "solaris" && GOOS != "illumos" && GOOS != "windows" && GOOS != "prospero" {
+	if !iscgo && GOOS != "solaris" && GOOS != "illumos" && GOOS != "windows" {
 		throw("cgocall unavailable")
 	}
 

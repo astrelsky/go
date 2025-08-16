@@ -13,9 +13,6 @@ go build -o $WORK/bin/go1.50.0$GOEXE ./fakego.go  # adds .exe extension implicit
 [!GOOS:plan9] env PATH=$WORK/bin
 [GOOS:plan9] env path=$WORK/bin
 
-[!GOOS:plan9] env PATH=$WORK/bin
-[GOOS:plan9] env path=$WORK/bin
-
 go version
 stdout go1.21pre3
 

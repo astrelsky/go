@@ -46,7 +46,7 @@ func checkGdbEnvironment(t *testing.T) {
 		if strings.HasSuffix(testenv.Builder(), "-alpine") {
 			t.Skip("skipping gdb tests on alpine; see https://golang.org/issue/54352")
 		}
-	case "freebsd":
+	case "freebsd", "prospero":
 		t.Skip("skipping gdb tests on FreeBSD; see https://golang.org/issue/29508")
 	case "aix":
 		if testing.Short() {

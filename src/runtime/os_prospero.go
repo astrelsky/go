@@ -8,78 +8,32 @@ package runtime
 
 import (
 	"internal/abi"
-	"internal/goarch"
 	"unsafe"
 )
-
-func cgoSigtramp()
 
 type PayloadArgs struct {
 	dlsym           uintptr
 	rwpipe          [2]int32
 	rwpair          [2]int32
-	kpipe_addr      uintptr
+	kpipe_addr      uint64
 	kdata_base_addr uintptr
 }
 
-type pthread_attr struct {
-	sched_policy   int32
-	sched_inherit  int32
-	prio           int32
-	suspend        int32
-	flags          int32
-	stackaddr_attr uintptr
-	stacksize_attr uintptr
-	guardsize_attr uint64
-	cpuset         uintptr
-	cpuset_size    uintptr
-}
-
-const PTHREAD_DETACHED = 1
-
 //go:linkname psyscall_addr runtime.psyscall_addr
-var psyscall_addr uintptr // name to take addr of syscall
-
-//go:linkname ppthread_create runtime.ppthread_create
-var ppthread_create uintptr // name to take addr of pthread_create
-
-//go:linkname ppthread_exit runtime.ppthread_exit
-var ppthread_exit uintptr // name to take addr of pthread_exit
-
-//go:linkname ppthread_kill runtime.ppthread_kill
-var ppthread_kill uintptr // name to take addr of pthread_kill
+var psyscall_addr uintptr // name to take addr of syscall_addr
 
 //go:linkname homebrew_args runtime.homebrew_args
 var homebrew_args PayloadArgs
 
-func GetDlsym() uintptr {
-	return homebrew_args.dlsym
-}
+//go:linkname _rt0_functions runtime._rt0_functions
+var _rt0_functions [7]uintptr // storage for _rt0
 
-func GetRWPipe() [2]int32 {
-	return [2]int32{homebrew_args.rwpipe[0], homebrew_args.rwpipe[1]}
+type mOS struct {
+	waitsema uint32 // semaphore for parking on locks
 }
-
-func GetRWPair() [2]int32 {
-	return [2]int32{homebrew_args.rwpair[0], homebrew_args.rwpair[1]}
-}
-
-func GetKernelPipeAddress() uintptr {
-	return homebrew_args.kpipe_addr
-}
-
-func GetKernelBase() uintptr {
-	return homebrew_args.kdata_base_addr
-}
-
-func GetSyscallAddress() uintptr {
-	return psyscall_addr
-}
-
-type mOS struct{}
 
 //go:noescape
-func thr_new(fn uintptr, tls unsafe.Pointer, attr **pthread_attr) int32
+func thr_new(param *thrparam, size int32) int32
 
 //go:noescape
 func sigaltstack(new, old *stackt)
@@ -90,16 +44,10 @@ func sigprocmask(how int32, new, old *sigset)
 //go:noescape
 func setitimer(mode int32, new, old *itimerval)
 
-//go:noescape
-func sysctl(mib *uint32, miblen uint32, out *byte, size *uintptr, dst *byte, ndst uintptr) int32
-
 func raiseproc(sig uint32)
 
 func thr_self() thread
 func thr_kill(tid thread, sig int)
-
-func thr_attr_init(unsafe.Pointer) int32
-func thr_attr_destroy(unsafe.Pointer) int32
 
 //go:noescape
 func sys_umtx_op(addr *uint32, mode int32, val uint32, uaddr1 uintptr, ut *umtx_time) int32
@@ -135,21 +83,6 @@ const (
 	_CTL_QUERY_MIB = 3
 )
 
-// sysctlnametomib fill mib with dynamically assigned sysctl entries of name,
-// return count of effected mib slots, return 0 on error.
-func sysctlnametomib(name []byte, mib *[_CTL_MAXNAME]uint32) uint32 {
-	oid := [2]uint32{_CTL_QUERY, _CTL_QUERY_MIB}
-	miblen := uintptr(_CTL_MAXNAME)
-	if sysctl(&oid[0], 2, (*byte)(unsafe.Pointer(mib)), &miblen, (*byte)(unsafe.Pointer(&name[0])), (uintptr)(len(name))) < 0 {
-		return 0
-	}
-	miblen /= unsafe.Sizeof(uint32(0))
-	if miblen <= 0 {
-		return 0
-	}
-	return uint32(miblen)
-}
-
 const (
 	_CPU_CURRENT_PID = -1 // Current process ID.
 )
@@ -158,45 +91,12 @@ const (
 func cpuset_getaffinity(level int, which int, id int64, size int, mask *byte) int32
 
 //go:systemstack
-func getncpu() int32 {
-	// Use a large buffer for the CPU mask. We're on the system
-	// stack, so this is fine, and we can't allocate memory for a
-	// dynamically-sized buffer at this point.
-	const maxCPUs = 64 * 1024
-	var mask [maxCPUs / 8]byte
-	/*var mib [_CTL_MAXNAME]uint32
-
-	// According to FreeBSD's /usr/src/sys/kern/kern_cpuset.c,
-	// cpuset_getaffinity return ERANGE when provided buffer size exceed the limits in kernel.
-	// Querying kern.smp.maxcpus to calculate maximum buffer size.
-	// See https://bugs.freebsd.org/bugzilla/show_bug.cgi?id=200802
-
-	// Variable kern.smp.maxcpus introduced at Dec 23 2003, revision 123766,
-	// with dynamically assigned sysctl entries.
-	miblen := sysctlnametomib([]byte("kern.smp.maxcpus"), &mib)
-	if miblen == 0 {
-		return 1
-	}
-
-	// Query kern.smp.maxcpus.
-	dstsize := uintptr(4)
-	maxcpus := uint32(0)
-	if sysctl(&mib[0], miblen, (*byte)(unsafe.Pointer(&maxcpus)), &dstsize, nil, 0) != 0 {
-		return 1
-	}*/
-
+func getCPUCount() int32 {
 	const maxcpus = 64
+	const maskSize = int(int(maxcpus+7) / 8)
+	var mask [16]byte
 
-	maskSize := int(maxcpus+7) / 8
-	if maskSize < goarch.PtrSize {
-		maskSize = goarch.PtrSize
-	}
-	if maskSize > len(mask) {
-		maskSize = len(mask)
-	}
-
-	if cpuset_getaffinity(_CPU_LEVEL_WHICH, _CPU_WHICH_PID, _CPU_CURRENT_PID,
-		maskSize, (*byte)(unsafe.Pointer(&mask[0]))) != 0 {
+	if cpuset_getaffinity(_CPU_LEVEL_WHICH, _CPU_WHICH_PID, _CPU_CURRENT_PID, maskSize, (*byte)(unsafe.Pointer(&mask[0]))) != 0 {
 		return 1
 	}
 	n := int32(0)
@@ -262,23 +162,28 @@ func thr_start()
 //go:nowritebarrier
 func newosproc(mp *m) {
 	stk := unsafe.Pointer(mp.g0.stack.hi)
-	var oset sigset
-	sigprocmask(_SIG_SETMASK, &sigset_all, &oset)
-
-	attr := &pthread_attr{
-		flags:          PTHREAD_DETACHED,
-		stackaddr_attr: mp.g0.stack.lo,
-		stacksize_attr: uintptr(stk) - mp.g0.stack.lo,
+	if false {
+		print("newosproc stk=", stk, " m=", mp, " g=", mp.g0, " thr_start=", abi.FuncPCABI0(thr_start), " id=", mp.id, " ostk=", &mp, "\n")
 	}
 
-	ret := retryOnEAGAIN(func() int32 {
-		var e int32
-		systemstack(func() {
-			e = thr_new(abi.FuncPCABI0(thr_start), unsafe.Pointer(mp), &attr)
-		})
-		return e
-	})
+	param := thrparam{
+		start_func: abi.FuncPCABI0(thr_start),
+		arg:        unsafe.Pointer(mp),
+		stack_base: mp.g0.stack.lo,
+		stack_size: uintptr(stk) - mp.g0.stack.lo,
+		child_tid:  nil, // minit will record tid
+		parent_tid: nil,
+		tls_base:   unsafe.Pointer(&mp.tls[0]),
+		tls_size:   unsafe.Sizeof(mp.tls),
+	}
 
+	var oset sigset
+	sigprocmask(_SIG_SETMASK, &sigset_all, &oset)
+	ret := retryOnEAGAIN(func() int32 {
+		errno := thr_new(&param, int32(unsafe.Sizeof(param)))
+		// thr_new returns negative errno
+		return -errno
+	})
 	sigprocmask(_SIG_SETMASK, &oset, nil)
 	if ret != 0 {
 		print("runtime: failed to create new OS thread (have ", mcount(), " already; errno=", ret, ")\n")
@@ -290,7 +195,7 @@ func newosproc(mp *m) {
 //
 //go:nosplit
 func newosproc0(stacksize uintptr, fn unsafe.Pointer) {
-	stack := sysAlloc(stacksize, &memstats.stacks_sys)
+	stack := sysAlloc(stacksize, &memstats.stacks_sys, "OS thread stack")
 	if stack == nil {
 		writeErrStr(failallocatestack)
 		exit(1)
@@ -301,17 +206,20 @@ func newosproc0(stacksize uintptr, fn unsafe.Pointer) {
 	// pointers, though the tid pointers can be nil.
 	// However, newosproc0 is currently unreachable because builds
 	// utilizing c-shared/c-archive force external linking.
+	param := thrparam{
+		start_func: uintptr(fn),
+		arg:        nil,
+		stack_base: uintptr(stack), //+stacksize?
+		stack_size: stacksize,
+		child_tid:  nil, // minit will record tid
+		parent_tid: nil,
+		tls_base:   unsafe.Pointer(&m0.tls[0]),
+		tls_size:   unsafe.Sizeof(m0.tls),
+	}
 
 	var oset sigset
 	sigprocmask(_SIG_SETMASK, &sigset_all, &oset)
-
-	attr := &pthread_attr{
-		flags:          PTHREAD_DETACHED,
-		stackaddr_attr: uintptr(stack),
-		stacksize_attr: stacksize,
-	}
-
-	ret := thr_new(uintptr(fn), unsafe.Pointer(&m0), &attr)
+	ret := thr_new(&param, int32(unsafe.Sizeof(param)))
 	sigprocmask(_SIG_SETMASK, &oset, nil)
 	if ret < 0 {
 		writeErrStr(failthreadcreate)
@@ -329,15 +237,8 @@ func libpreinit() {
 	initsig(true)
 }
 
-// Call a c function with cdecl conventions,
-// and switch to os stack during the call.
-func asmcdeclcall(fn unsafe.Pointer)
-
-var asmcdeclcallAddr unsafe.Pointer
-
 func osinit() {
-	asmcdeclcallAddr = unsafe.Pointer(abi.FuncPCABI0(asmcdeclcall))
-	ncpu = getncpu()
+	numCPUStartup = getCPUCount()
 	if physPageSize == 0 {
 		physPageSize = getPageSize()
 	}
@@ -346,11 +247,11 @@ func osinit() {
 var urandom_dev = []byte("/dev/urandom\x00")
 
 //go:nosplit
-func getRandomData(r []byte) {
+func readRandom(r []byte) int {
 	fd := open(&urandom_dev[0], 0 /* O_RDONLY */, 0)
 	n := read(fd, unsafe.Pointer(&r[0]), int32(len(r)))
 	closefd(fd)
-	extendRandom(r, int(n))
+	return int(n)
 }
 
 func goenvs() {
@@ -391,6 +292,7 @@ func minit() {
 //go:nosplit
 func unminit() {
 	unminitSignals()
+	getg().m.procid = 0
 }
 
 // Called from exitm, but not from drop, to undo the effect of thread-owned
@@ -468,6 +370,7 @@ func sysargs(argc int32, argv **byte) {
 const (
 	_AT_NULL     = 0  // Terminates the vector
 	_AT_PAGESZ   = 6  // Page size in bytes
+	_AT_PLATFORM = 15 // string identifying platform
 	_AT_TIMEKEEP = 22 // Pointer to timehands.
 	_AT_HWCAP    = 25 // CPU feature flags
 	_AT_HWCAP2   = 26 // CPU feature flags 2
@@ -515,21 +418,4 @@ const sigPerThreadSyscall = 1 << 31
 //go:nosplit
 func runPerThreadSyscall() {
 	throw("runPerThreadSyscall only valid on linux")
-}
-
-//go:nosplit
-//go:nowritebarrierrec
-func setsig(i uint32, fn uintptr) {
-	var sa sigactiont
-	sa.sa_flags = _SA_SIGINFO | _SA_ONSTACK | _SA_RESTART
-	sa.sa_mask = sigset_all
-	if fn == abi.FuncPCABIInternal(sighandler) { // abi.FuncPCABIInternal(sighandler) matches the callers in signal_unix.go
-		if iscgo {
-			fn = abi.FuncPCABI0(cgoSigtramp)
-		} else {
-			fn = abi.FuncPCABI0(sigtramp)
-		}
-	}
-	sa.sa_handler = fn
-	sigaction(i, &sa, nil)
 }

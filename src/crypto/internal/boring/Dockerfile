@@ -27,8 +27,8 @@ RUN \
 	./llvm.sh $ClangV
 
 # Download, validate, unpack, build, and install Ninja.
-ENV NinjaV=1.10.1
-ENV NinjaH=a6b6f7ac360d4aabd54e299cc1d8fa7b234cd81b9401693da21221c62569a23e
+ENV NinjaV=1.10.2
+ENV NinjaH=ce35865411f0490368a8fc383f29071de6690cbadc27704734978221f25e2bed
 RUN \
 	wget https://github.com/ninja-build/ninja/archive/refs/tags/v$NinjaV.tar.gz && \
 	echo "$NinjaH v$NinjaV.tar.gz" >sha && sha256sum -c sha && \

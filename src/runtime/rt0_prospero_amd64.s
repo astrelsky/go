@@ -5,110 +5,459 @@
 #include "textflag.h"
 #include "go_asm.h"
 
-DATA fname_getpid<>+0x00(SB)/8, $0x646970746567 // "getpid"
-GLOBL fname_getpid<>(SB), (NOPTR + RODATA), $8
-
-DATA fname_pthread_create<>+0x00(SB)/8, $0x5F64616572687470 // "pthread_"
-DATA fname_pthread_create<>+0x08(SB)/8, $0x657461657263 // "create"
-GLOBL fname_pthread_create<>(SB), (NOPTR + RODATA), $16
-
-DATA fname_pthread_exit<>+0x00(SB)/8, $0x5F64616572687470 // "pthread_"
-DATA fname_pthread_exit<>+0x08(SB)/8, $0x74697865 // "exit"
-GLOBL fname_pthread_exit<>(SB), (NOPTR + RODATA), $16
-
-DATA fname_pthread_kill<>+0x00(SB)/8, $0x5F64616572687470 // "pthread_"
-DATA fname_pthread_kill<>+0x08(SB)/8, $0x6C6C696B // "kill"
-GLOBL fname_pthread_kill<>(SB), (NOPTR + RODATA), $16
-
-DATA console<>+0x00(SB)/8, $0x6E6F632F7665642F // "/dev/con"
-DATA console<>+0x08(SB)/8, $0x656C6F73         // "sole"
-GLOBL console<>(SB), (NOPTR + RODATA), $16
-
 DATA argv_hack<>+0x00(SB)/8, $0
 DATA argv_hack<>+0x08(SB)/8, $0
 GLOBL argv_hack<>(SB), (NOPTR + RODATA), $16
 
-GLOBL ppthread_join(SB), (NOPTR), $8
-GLOBL main_thread(SB), (NOPTR), $8
-
-DATA libkernel_handle(SB)/4, $0x2001
-GLOBL libkernel_handle(SB), (NOPTR), $4
-
-// MOVQ src, dst // stupid x86
-
-// Handle needed argument passed by homebrew elf loader
-TEXT _rt0_amd64_prospero(SB),NOSPLIT,$-8
-	LEAQ	runtime·homebrew_args(SB), AX
-	MOVQ	0x0(DI), SI
-	MOVQ	SI, PayloadArgs_dlsym(AX)
-	MOVQ	0x8(DI), SI
-	MOVL	(SI), BX
-	MOVL	BX, PayloadArgs_rwpipe(AX)
-	MOVL	4(SI), BX
-	MOVL	BX, (PayloadArgs_rwpipe + 4)(AX)
-	MOVQ	0x10(DI), SI
-	MOVL	(SI), BX
-	MOVL	BX, PayloadArgs_rwpair(AX)
-	MOVL	4(SI), BX
-	MOVL	BX, (PayloadArgs_rwpair + 4)(AX)
-	MOVQ	0x18(DI), SI
-	MOVQ	SI, PayloadArgs_kpipe_addr(AX)
-	MOVQ	0x20(DI), SI
-	MOVQ	SI, PayloadArgs_kdata_base_addr(AX)
-	MOVQ	DI, AX // payload_args->dlsym
-	MOVL	libkernel_handle(SB), DI
-	MOVQ	$fname_getpid<>(SB), SI
-	LEAQ	runtime·psyscall_addr(SB), DX
-	PUSHQ	AX
-	CALL	(AX)
-	TESTQ	AX,AX
-	JZ		found_handle
-	MOVL	$0x1, libkernel_handle(SB)
-	MOVL	libkernel_handle(SB), DI
-	MOVQ	(SP), AX
-	MOVQ	$fname_getpid<>(SB), SI
-	LEAQ	runtime·psyscall_addr(SB), DX
-	CALL	(AX)
-found_handle:
-	ADDQ	$10, runtime·psyscall_addr(SB)
-	MOVQ	(SP), AX
-	MOVL	libkernel_handle(SB), DI
-	MOVQ	$fname_pthread_create<>(SB), SI
-	LEAQ	runtime·ppthread_create(SB), DX
-	CALL	(AX)
-	MOVQ	(SP), AX
-	MOVL	libkernel_handle(SB), DI
-	MOVQ	$fname_pthread_exit<>(SB), SI
-	LEAQ	runtime·ppthread_exit(SB), DX
-	CALL	(AX)
-	MOVQ	(SP), AX
-	MOVL	libkernel_handle(SB), DI
-	MOVQ	$fname_pthread_kill<>(SB), SI
-	LEAQ	runtime·ppthread_kill(SB), DX
-	CALL	(AX)
-	POPQ	AX
-	MOVQ	$console<>(SB), DI
-	MOVQ	$1, SI
-	XORQ	DX, DX
-	MOVQ	$5, AX
-	MOVQ	runtime·psyscall_addr(SB), BX
-	CALL	BX
-	MOVQ	AX, DI
-	MOVQ	$1, SI
-	MOVQ	$90, AX
-	MOVQ	runtime·psyscall_addr(SB), BX
-	CALL	BX
-	MOVQ	$1, DI
-	MOVQ	$2, SI
-	MOVQ	$90, AX
-	MOVQ	runtime·psyscall_addr(SB), BX
-	CALL	BX
-
-	// we need to fake argc, argv and env
-	MOVQ	$0, DI
-	MOVQ	$argv_hack<>(SB), SI
-	JMP	runtime·rt0_go(SB)
-
 // I don't actually know what this one is for
 TEXT _rt0_amd64_prospero_lib(SB),NOSPLIT,$0
 	JMP	_rt0_amd64_lib(SB)
+
+TEXT dlsym(SB),NOSPLIT,$0
+	MOVQ	$591, AX
+	MOVQ	runtime·psyscall_addr(SB), R9
+	JMP		R9
+
+TEXT fstat(SB),NOSPLIT,$0
+	MOVQ	$189, AX
+	MOVQ	runtime·psyscall_addr(SB), R9
+	JMP		R9
+
+TEXT open(SB),NOSPLIT,$0
+	MOVQ	$5, AX
+	MOVQ	runtime·psyscall_addr(SB), R9
+	JMP		R9
+
+TEXT dup2(SB),NOSPLIT,$0
+	MOVQ	$90, AX
+	MOVQ	runtime·psyscall_addr(SB), R9
+	JMP		R9
+
+TEXT exit(SB),NOSPLIT,$0
+	MOVQ	$1, AX
+	MOVQ	runtime·psyscall_addr(SB), R9
+	JMP		R9
+
+TEXT sysctl(SB),NOSPLIT,$0
+	MOVQ	$202, AX
+	MOVQ	runtime·psyscall_addr(SB), R9
+	JMP		R9
+
+TEXT getpid(SB),NOSPLIT,$0
+	MOVQ	$20, AX
+	MOVQ	runtime·psyscall_addr(SB), R9
+	JMP		R9	
+
+
+/*
+struct functions {
+	int (*dlsym)(int lib, const char *name, void *fun);
+	int (*fstat)(int fd, struct stat *st);
+	int (*open)(const char *, int);
+	int (*dup2)(int, int);
+	int (*_rt0_go)(int argc, const char **argv);
+	void (*exit)(int status);
+	uintptr_t *psyscall_addr;
+} _rt0_functions;
+*/
+
+
+// RDI: args
+// RSI homebrew_args
+// RDX functions
+TEXT _rt0_amd64_prospero(SB),NOSPLIT,$-8
+	MOVQ	SI, CX
+	TESTQ	CX, CX
+	JNZ	has_args
+	MOVQ	$argv_hack<>(SB), CX
+has_args:
+	LEAQ	runtime·homebrew_args(SB), SI
+	LEAQ	runtime·_rt0_functions(SB), DX
+	LEAQ	dup2(SB), AX
+	MOVQ	AX, 0x00(DX)
+	LEAQ	fstat(SB), AX
+	MOVQ	AX, 0x08(DX)
+	LEAQ	open(SB), AX
+	MOVQ	AX, 0x10(DX)
+	LEAQ	dup2(SB), AX
+	MOVQ	AX, 0x18(DX)
+	LEAQ	runtime·rt0_go(SB), AX
+	MOVQ	AX, 0x20(DX)
+	LEAQ	exit(SB), AX
+	MOVQ	AX, 0x28(DX)
+	LEAQ	runtime·psyscall_addr(SB), AX
+	MOVQ	AX, 0x30(DX)
+
+
+	BYTE $0x55
+	BYTE $0x48
+	BYTE $0x89
+	BYTE $0xe5
+	BYTE $0x41
+	BYTE $0x57
+	BYTE $0x41
+	BYTE $0x56
+	BYTE $0x41
+	BYTE $0x54
+	BYTE $0x53
+	BYTE $0x48
+	BYTE $0x81
+	BYTE $0xec
+	BYTE $0x90
+	BYTE $0x00
+	BYTE $0x00
+	BYTE $0x00
+	BYTE $0xc5
+	BYTE $0xfc
+	BYTE $0x10
+	BYTE $0x07
+	BYTE $0x48
+	BYTE $0x8b
+	BYTE $0x47
+	BYTE $0x20
+	BYTE $0x4c
+	BYTE $0x8b
+	BYTE $0x27
+	BYTE $0x48
+	BYTE $0x89
+	BYTE $0xd3
+	BYTE $0x31
+	BYTE $0xff
+	BYTE $0x31
+	BYTE $0xd2
+	BYTE $0x49
+	BYTE $0x89
+	BYTE $0xce
+	BYTE $0x48
+	BYTE $0x89
+	BYTE $0x46
+	BYTE $0x20
+	BYTE $0xc5
+	BYTE $0xfc
+	BYTE $0x11
+	BYTE $0x06
+	BYTE $0x48
+	BYTE $0xc7
+	BYTE $0xc6
+	BYTE $0xff
+	BYTE $0xff
+	BYTE $0xff
+	BYTE $0xff
+	BYTE $0xc5
+	BYTE $0xf8
+	BYTE $0x77
+	BYTE $0x41
+	BYTE $0xff
+	BYTE $0xd4
+	BYTE $0x85
+	BYTE $0xc0
+	BYTE $0x78
+	BYTE $0x2f
+	BYTE $0x4c
+	BYTE $0x8b
+	BYTE $0x7b
+	BYTE $0x30
+	BYTE $0x4d
+	BYTE $0x89
+	BYTE $0x27
+	BYTE $0x49
+	BYTE $0x83
+	BYTE $0xc4
+	BYTE $0x0a
+	BYTE $0x4d
+	BYTE $0x89
+	BYTE $0x27
+	BYTE $0x4d
+	BYTE $0x85
+	BYTE $0xf6
+	BYTE $0x74
+	BYTE $0x70
+	BYTE $0x41
+	BYTE $0xbf
+	BYTE $0xff
+	BYTE $0xff
+	BYTE $0xff
+	BYTE $0xff
+	BYTE $0x4c
+	BYTE $0x89
+	BYTE $0xf0
+	BYTE $0x0f
+	BYTE $0x1f
+	BYTE $0x40
+	BYTE $0x00
+	BYTE $0x41
+	BYTE $0xff
+	BYTE $0xc7
+	BYTE $0x48
+	BYTE $0x83
+	BYTE $0x38
+	BYTE $0x00
+	BYTE $0x48
+	BYTE $0x8d
+	BYTE $0x40
+	BYTE $0x08
+	BYTE $0x75
+	BYTE $0xf3
+	BYTE $0xeb
+	BYTE $0x57
+	BYTE $0x4c
+	BYTE $0x8b
+	BYTE $0x7b
+	BYTE $0x30
+	BYTE $0x48
+	BYTE $0xb8
+	BYTE $0x67
+	BYTE $0x65
+	BYTE $0x74
+	BYTE $0x70
+	BYTE $0x69
+	BYTE $0x64
+	BYTE $0x00
+	BYTE $0x00
+	BYTE $0x48
+	BYTE $0x8d
+	BYTE $0xb5
+	BYTE $0x58
+	BYTE $0xff
+	BYTE $0xff
+	BYTE $0xff
+	BYTE $0xbf
+	BYTE $0x01
+	BYTE $0x20
+	BYTE $0x00
+	BYTE $0x00
+	BYTE $0x48
+	BYTE $0x89
+	BYTE $0x85
+	BYTE $0x58
+	BYTE $0xff
+	BYTE $0xff
+	BYTE $0xff
+	BYTE $0x4c
+	BYTE $0x89
+	BYTE $0xfa
+	BYTE $0x41
+	BYTE $0xff
+	BYTE $0xd4
+	BYTE $0x85
+	BYTE $0xc0
+	BYTE $0x74
+	BYTE $0x1a
+	BYTE $0x48
+	BYTE $0x8d
+	BYTE $0xb5
+	BYTE $0x58
+	BYTE $0xff
+	BYTE $0xff
+	BYTE $0xff
+	BYTE $0xbf
+	BYTE $0x01
+	BYTE $0x00
+	BYTE $0x00
+	BYTE $0x00
+	BYTE $0x4c
+	BYTE $0x89
+	BYTE $0xfa
+	BYTE $0x41
+	BYTE $0xff
+	BYTE $0xd4
+	BYTE $0x85
+	BYTE $0xc0
+	BYTE $0x0f
+	BYTE $0x85
+	BYTE $0xb8
+	BYTE $0x00
+	BYTE $0x00
+	BYTE $0x00
+	BYTE $0x4d
+	BYTE $0x8b
+	BYTE $0x27
+	BYTE $0x49
+	BYTE $0x83
+	BYTE $0xc4
+	BYTE $0x0a
+	BYTE $0x4d
+	BYTE $0x89
+	BYTE $0x27
+	BYTE $0x4d
+	BYTE $0x85
+	BYTE $0xf6
+	BYTE $0x75
+	BYTE $0x90
+	BYTE $0x45
+	BYTE $0x31
+	BYTE $0xff
+	BYTE $0x48
+	BYTE $0x8d
+	BYTE $0xb5
+	BYTE $0x58
+	BYTE $0xff
+	BYTE $0xff
+	BYTE $0xff
+	BYTE $0x31
+	BYTE $0xff
+	BYTE $0xff
+	BYTE $0x53
+	BYTE $0x08
+	BYTE $0x85
+	BYTE $0xc0
+	BYTE $0x75
+	BYTE $0x76
+	BYTE $0x0f
+	BYTE $0xb7
+	BYTE $0x85
+	BYTE $0x60
+	BYTE $0xff
+	BYTE $0xff
+	BYTE $0xff
+	BYTE $0x25
+	BYTE $0x00
+	BYTE $0xf0
+	BYTE $0x00
+	BYTE $0x00
+	BYTE $0x66
+	BYTE $0x3d
+	BYTE $0x00
+	BYTE $0xc0
+	BYTE $0x74
+	BYTE $0x4b
+	BYTE $0x48
+	BYTE $0xb8
+	BYTE $0x2f
+	BYTE $0x64
+	BYTE $0x65
+	BYTE $0x76
+	BYTE $0x2f
+	BYTE $0x63
+	BYTE $0x6f
+	BYTE $0x6e
+	BYTE $0x48
+	BYTE $0x8d
+	BYTE $0x7d
+	BYTE $0xd0
+	BYTE $0xbe
+	BYTE $0x01
+	BYTE $0x00
+	BYTE $0x00
+	BYTE $0x00
+	BYTE $0x48
+	BYTE $0x89
+	BYTE $0x45
+	BYTE $0xd0
+	BYTE $0x48
+	BYTE $0xc7
+	BYTE $0x45
+	BYTE $0xd8
+	BYTE $0x73
+	BYTE $0x6f
+	BYTE $0x6c
+	BYTE $0x65
+	BYTE $0xff
+	BYTE $0x53
+	BYTE $0x10
+	BYTE $0x85
+	BYTE $0xc0
+	BYTE $0x78
+	BYTE $0x46
+	BYTE $0x4c
+	BYTE $0x8b
+	BYTE $0x63
+	BYTE $0x18
+	BYTE $0x89
+	BYTE $0xc7
+	BYTE $0xbe
+	BYTE $0x01
+	BYTE $0x00
+	BYTE $0x00
+	BYTE $0x00
+	BYTE $0x41
+	BYTE $0xff
+	BYTE $0xd4
+	BYTE $0x83
+	BYTE $0xf8
+	BYTE $0xff
+	BYTE $0x74
+	BYTE $0x3b
+	BYTE $0xbf
+	BYTE $0x01
+	BYTE $0x00
+	BYTE $0x00
+	BYTE $0x00
+	BYTE $0xbe
+	BYTE $0x02
+	BYTE $0x00
+	BYTE $0x00
+	BYTE $0x00
+	BYTE $0x41
+	BYTE $0xff
+	BYTE $0xd4
+	BYTE $0x83
+	BYTE $0xf8
+	BYTE $0xff
+	BYTE $0x74
+	BYTE $0x31
+	BYTE $0x44
+	BYTE $0x89
+	BYTE $0xff
+	BYTE $0x4c
+	BYTE $0x89
+	BYTE $0xf6
+	BYTE $0xff
+	BYTE $0x53
+	BYTE $0x20
+	BYTE $0x48
+	BYTE $0x81
+	BYTE $0xc4
+	BYTE $0x90
+	BYTE $0x00
+	BYTE $0x00
+	BYTE $0x00
+	BYTE $0x5b
+	BYTE $0x41
+	BYTE $0x5c
+	BYTE $0x41
+	BYTE $0x5e
+	BYTE $0x41
+	BYTE $0x5f
+	BYTE $0x5d
+	BYTE $0xc3
+	BYTE $0xbf
+	BYTE $0xfc
+	BYTE $0xff
+	BYTE $0xff
+	BYTE $0xff
+	BYTE $0xff
+	BYTE $0x53
+	BYTE $0x28
+	BYTE $0xbf
+	BYTE $0xfb
+	BYTE $0xff
+	BYTE $0xff
+	BYTE $0xff
+	BYTE $0xff
+	BYTE $0x53
+	BYTE $0x28
+	BYTE $0xbf
+	BYTE $0xfa
+	BYTE $0xff
+	BYTE $0xff
+	BYTE $0xff
+	BYTE $0xff
+	BYTE $0x53
+	BYTE $0x28
+	BYTE $0xbf
+	BYTE $0xf9
+	BYTE $0xff
+	BYTE $0xff
+	BYTE $0xff
+	BYTE $0xff
+	BYTE $0x53
+	BYTE $0x28
+	BYTE $0xbf
+	BYTE $0xff
+	BYTE $0xff
+	BYTE $0xff
+	BYTE $0xff
+	BYTE $0xff
+	BYTE $0x53
+	BYTE $0x28

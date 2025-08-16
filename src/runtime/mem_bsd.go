@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-//go:build dragonfly || (!prospero && freebsd) || netbsd || openbsd || solaris
+//go:build dragonfly || freebsd || netbsd || openbsd || solaris
 
 package runtime
 
@@ -15,7 +15,11 @@ import (
 //
 //go:nosplit
 func sysAllocOS(n uintptr, _ string) unsafe.Pointer {
-	v, err := mmap(nil, n, _PROT_READ|_PROT_WRITE, _MAP_ANON|_MAP_PRIVATE, -1, 0)
+	flags := int32(_MAP_ANON|_MAP_PRIVATE)
+	if GOOS == "prospero" {
+		flags |= _MAP_FLEX
+	}
+	v, err := mmap(nil, n, _PROT_READ|_PROT_WRITE, flags, -1, 0)
 	if err != 0 {
 		return nil
 	}
@@ -51,7 +55,11 @@ func sysFreeOS(v unsafe.Pointer, n uintptr) {
 }
 
 func sysFaultOS(v unsafe.Pointer, n uintptr) {
-	mmap(v, n, _PROT_NONE, _MAP_ANON|_MAP_PRIVATE|_MAP_FIXED, -1, 0)
+	flags := int32(_MAP_ANON|_MAP_PRIVATE|_MAP_FIXED)
+	if GOOS == "prospero" {
+		flags |= _MAP_FLEX
+	}
+	mmap(v, n, _PROT_NONE, flags, -1, 0)
 }
 
 // Indicates not to reserve swap space for the mapping.
@@ -65,6 +73,9 @@ func sysReserveOS(v unsafe.Pointer, n uintptr, _ string) unsafe.Pointer {
 		// wherein large mappings can cause fork to fail.
 		flags |= _sunosMAP_NORESERVE
 	}
+	if GOOS == "prospero" {
+		flags |= _MAP_FLEX
+	}
 	p, err := mmap(v, n, _PROT_NONE, flags, -1, 0)
 	if err != 0 {
 		return nil
@@ -76,7 +87,11 @@ const _sunosEAGAIN = 11
 const _ENOMEM = 12
 
 func sysMapOS(v unsafe.Pointer, n uintptr, _ string) {
-	p, err := mmap(v, n, _PROT_READ|_PROT_WRITE, _MAP_ANON|_MAP_FIXED|_MAP_PRIVATE, -1, 0)
+	flags := int32(_MAP_ANON|_MAP_FIXED|_MAP_PRIVATE)
+	if GOOS == "prospero" {
+		flags |= _MAP_FLEX
+	}
+	p, err := mmap(v, n, _PROT_READ|_PROT_WRITE, flags, -1, 0)
 	if err == _ENOMEM || ((GOOS == "solaris" || GOOS == "illumos") && err == _sunosEAGAIN) {
 		throw("runtime: out of memory")
 	}

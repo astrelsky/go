@@ -1458,7 +1458,7 @@ func (ctxt *Link) doelf() {
 	if ctxt.IsOpenbsd() {
 		shstrtabAddstring(".note.openbsd.ident")
 	}
-	if ctxt.IsFreebsd() {
+	if ctxt.IsFreebsd() || ctxt.IsProspero() {
 		shstrtabAddstring(".note.tag")
 	}
 	if len(buildinfo) > 0 {
@@ -1978,7 +1978,7 @@ func asmbElf(ctxt *Link) {
 		phsh(ph, sh)
 	}
 
-	if ctxt.HeadType == objabi.Hnetbsd || ctxt.HeadType == objabi.Hopenbsd || ctxt.HeadType == objabi.Hfreebsd {
+	if ctxt.HeadType == objabi.Hnetbsd || ctxt.HeadType == objabi.Hopenbsd || ctxt.HeadType == objabi.Hfreebsd || ctxt.HeadType == objabi.Hprospero {
 		var sh *ElfShdr
 		switch ctxt.HeadType {
 		case objabi.Hnetbsd:
@@ -1989,7 +1989,7 @@ func asmbElf(ctxt *Link) {
 			sh = elfshname(".note.openbsd.ident")
 			resoff -= int64(elfopenbsdsig(sh, uint64(startva), uint64(resoff)))
 
-		case objabi.Hfreebsd:
+		case objabi.Hfreebsd, objabi.Hprospero:
 			sh = elfshname(".note.tag")
 			resoff -= int64(elffreebsdsig(sh, uint64(startva), uint64(resoff)))
 		}
@@ -2344,9 +2344,7 @@ elfobj:
 	}
 
 	if ctxt.LinkMode != LinkExternal {
-		if ctxt.BuildMode != BuildModeShared && ctxt.BuildMode != BuildModePlugin {
-			eh.Entry = uint64(Entryvalue(ctxt))
-		}
+		eh.Entry = uint64(Entryvalue(ctxt))
 	}
 
 	eh.Version = uint32(elf.EV_CURRENT)
@@ -2375,7 +2373,7 @@ elfobj:
 		if ctxt.HeadType == objabi.Hopenbsd {
 			a += int64(elfwriteopenbsdsig(ctxt.Out))
 		}
-		if ctxt.HeadType == objabi.Hfreebsd {
+		if ctxt.HeadType == objabi.Hfreebsd || ctxt.HeadType == objabi.Hprospero {
 			a += int64(elfwritefreebsdsig(ctxt.Out))
 		}
 		if len(buildinfo) > 0 {

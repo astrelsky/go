@@ -116,29 +116,3 @@ func join(elem []string) string {
 func sameWord(a, b string) bool {
 	return strings.EqualFold(a, b)
 }
-
-// postClean adjusts the results of Clean to avoid turning a relative path
-// into an absolute or rooted one.
-func postClean(out *lazybuf) {
-	if out.volLen != 0 || out.buf == nil {
-		return
-	}
-	// If a ':' appears in the path element at the start of a path,
-	// insert a .\ at the beginning to avoid converting relative paths
-	// like a/../c: into c:.
-	for _, c := range out.buf {
-		if os.IsPathSeparator(c) {
-			break
-		}
-		if c == ':' {
-			out.prepend('.', Separator)
-			return
-		}
-	}
-	// If a path begins with \??\, insert a \. at the beginning
-	// to avoid converting paths like \a\..\??\c:\x into \??\c:\x
-	// (equivalent to c:\x).
-	if len(out.buf) >= 3 && os.IsPathSeparator(out.buf[0]) && out.buf[1] == '?' && out.buf[2] == '?' {
-		out.prepend(Separator, '.')
-	}
-}

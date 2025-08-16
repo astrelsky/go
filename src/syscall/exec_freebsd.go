@@ -2,8 +2,6 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-//go:build !prospero && freebsd
-
 package syscall
 
 import (
@@ -60,6 +58,9 @@ func runtime_AfterForkInChild()
 //
 //go:norace
 func forkAndExecInChild(argv0 *byte, argv, envv []*byte, chroot, dir *byte, attr *ProcAttr, sys *SysProcAttr, pipe int) (pid int, err Errno) {
+	if runtime.GOOS == "prospero" {
+		panic("fork not allowed")
+	}
 	// Declare all variables at top in case any
 	// declarations require heap allocation (e.g., err1).
 	var (

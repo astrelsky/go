@@ -234,7 +234,7 @@ func buildModeInit() {
 					codegenArg = "-shared"
 				}
 
-			case "dragonfly", "freebsd", "illumos", "linux", "netbsd", "openbsd", "solaris":
+			case "dragonfly", "freebsd", "illumos", "linux", "netbsd", "openbsd", "prospero", "solaris":
 				// Use -shared so that the result is
 				// suitable for inclusion in a PIE or
 				// shared library.
@@ -306,11 +306,7 @@ func buildModeInit() {
 		} else {
 			codegenArg = "-dynlink"
 		}
-		if cfg.Goos == "prospero" {
-			cfg.ExeSuffix = ".prx"
-		} else {
-			cfg.ExeSuffix = ".so"
-		}
+		cfg.ExeSuffix = ".so"
 		ldBuildmode = "plugin"
 	default:
 		base.Fatalf("buildmode=%s not supported", cfg.BuildBuildmode)

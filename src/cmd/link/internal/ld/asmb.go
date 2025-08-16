@@ -108,10 +108,10 @@ func asmb2(ctxt *Link) {
 	// Elf
 	case objabi.Hdragonfly,
 		objabi.Hfreebsd,
+		objabi.Hprospero,
 		objabi.Hlinux,
 		objabi.Hnetbsd,
 		objabi.Hopenbsd,
-		objabi.Hprospero,
 		objabi.Hsolaris:
 		asmbElf(ctxt)
 	}

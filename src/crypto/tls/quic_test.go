@@ -339,28 +339,6 @@ func TestQUICPostHandshakeMessageTooLarge(t *testing.T) {
 	}
 }
 
-func TestQUICPostHandshakeMessageTooLarge(t *testing.T) {
-	config := testConfig.Clone()
-	config.MinVersion = VersionTLS13
-	cli := newTestQUICClient(t, config)
-	cli.conn.SetTransportParameters(nil)
-	srv := newTestQUICServer(t, config)
-	srv.conn.SetTransportParameters(nil)
-	if err := runTestQUICConnection(context.Background(), cli, srv, nil); err != nil {
-		t.Fatalf("error during connection handshake: %v", err)
-	}
-
-	size := maxHandshake + 1
-	if err := cli.conn.HandleData(QUICEncryptionLevelApplication, []byte{
-		byte(typeNewSessionTicket),
-		byte(size >> 16),
-		byte(size >> 8),
-		byte(size),
-	}); err == nil {
-		t.Fatalf("%v-byte post-handshake message: got no error, want one", size)
-	}
-}
-
 func TestQUICHandshakeError(t *testing.T) {
 	clientConfig := &QUICConfig{TLSConfig: testConfig.Clone()}
 	clientConfig.TLSConfig.MinVersion = VersionTLS13

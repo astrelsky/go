@@ -19,7 +19,6 @@ const IsLinux = 0
 const IsNacl = 0
 const IsNetbsd = 0
 const IsOpenbsd = 0
-const IsProspero = 0
 const IsPlan9 = 0
 const IsSolaris = 1
 const IsWasip1 = 0

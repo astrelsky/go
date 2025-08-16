@@ -5,10 +5,13 @@
 package os
 
 import (
+	"internal/syscall/windows"
 	"io"
 	"io/fs"
 	"runtime"
+	"sync"
 	"syscall"
+	"unsafe"
 )
 
 // Auxiliary information if the File describes a directory
@@ -144,9 +147,9 @@ func (file *File) readdir(n int, mode readdirMode) (names []string, dirents []Di
 				if s, _ := file.Stat(); s != nil && !s.IsDir() {
 					err = &PathError{Op: "readdir", Path: file.name, Err: syscall.ENOTDIR}
 				} else {
-					err = &PathError{Op: "FindNextFile", Path: file.name, Err: e}
-					return
+					err = &PathError{Op: "GetFileInformationByHandleEx", Path: file.name, Err: err}
 				}
+				return
 			}
 			if d.class == windows.FileIdBothDirectoryRestartInfo {
 				d.class = windows.FileIdBothDirectoryInfo
@@ -204,8 +207,8 @@ func (file *File) readdir(n int, mode readdirMode) (names []string, dirents []Di
 					infos = append(infos, f)
 				}
 			}
+			n--
 		}
-		n--
 	}
 	if !wantAll && len(names)+len(dirents)+len(infos) == 0 {
 		return nil, nil, nil, io.EOF

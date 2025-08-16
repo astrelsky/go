@@ -757,7 +757,7 @@ const (
 // value of the GODEBUG environment variable.
 func cpuinit(env string) {
 	switch GOOS {
-	case "aix", "darwin", "ios", "dragonfly", "freebsd", "netbsd", "openbsd", "illumos", "solaris", "linux":
+	case "aix", "darwin", "ios", "dragonfly", "freebsd", "netbsd", "openbsd", "prospero", "illumos", "solaris", "linux":
 		cpu.DebugOptions = true
 	}
 	cpu.Initialize(env)
@@ -793,7 +793,7 @@ func getGodebugEarly() string {
 	const prefix = "GODEBUG="
 	var env string
 	switch GOOS {
-	case "aix", "darwin", "ios", "dragonfly", "freebsd", "netbsd", "openbsd", "illumos", "solaris", "linux":
+	case "aix", "darwin", "ios", "dragonfly", "freebsd", "netbsd", "openbsd", "prospero", "illumos", "solaris", "linux":
 		// Similar to goenv_unix but extracts the environment value for
 		// GODEBUG directly.
 		// TODO(moehrmann): remove when general goenvs() can be called before cpuinit()
@@ -1013,7 +1013,7 @@ func mcommoninit(mp *m, id int64) {
 	unlock(&sched.lock)
 
 	// Allocate memory to hold a cgo traceback if the cgo call crashes.
-	if iscgo || GOOS == "solaris" || GOOS == "illumos" || GOOS == "windows" || GOOS == "prospero" {
+	if iscgo || GOOS == "solaris" || GOOS == "illumos" || GOOS == "windows" {
 		mp.cgoCallers = new(cgoCallers)
 	}
 	mProfStackInit(mp)
@@ -5104,7 +5104,7 @@ func syscall_runtime_BeforeExec() {
 
 	// On Darwin, wait for all pending preemption signals to
 	// be received. See issue #41702.
-	if GOOS == "darwin" || GOOS == "ios" || GOOS == "prospero" {
+	if GOOS == "darwin" || GOOS == "ios" {
 		for pendingPreemptSignals.Load() > 0 {
 			osyield()
 		}

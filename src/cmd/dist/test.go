@@ -101,29 +101,6 @@ func (w *work) printSkip(t *tester, msg string) {
 	fmt.Fprintln(&w.out, msg)
 }
 
-// printSkip prints a skip message for all of work.
-func (w *work) printSkip(t *tester, msg string) {
-	if t.json {
-		type event struct {
-			Time    time.Time
-			Action  string
-			Package string
-			Output  string `json:",omitempty"`
-		}
-		enc := json.NewEncoder(&w.out)
-		ev := event{Time: time.Now(), Package: w.dt.name, Action: "start"}
-		enc.Encode(ev)
-		ev.Action = "output"
-		ev.Output = msg
-		enc.Encode(ev)
-		ev.Action = "skip"
-		ev.Output = ""
-		enc.Encode(ev)
-		return
-	}
-	fmt.Fprintln(&w.out, msg)
-}
-
 // A distTest is a test run by dist test.
 // Each test has a unique name and belongs to a group (heading)
 type distTest struct {
@@ -1764,7 +1741,7 @@ func buildModeSupported(compiler, buildmode, goos, goarch string) bool {
 				// in a PIE or shared library.
 				return false
 			}
-		case "freebsd", "prospero":
+		case "freebsd":
 			return goarch == "amd64"
 		}
 		return false

@@ -18,7 +18,7 @@ import (
 type fileStat struct {
 	name string
 
-	// from ByHandleFileInformation, Win32FileAttributeData and Win32finddata
+	// from ByHandleFileInformation, Win32FileAttributeData, Win32finddata, and GetFileInformationByHandleEx
 	FileAttributes uint32
 	CreationTime   syscall.Filetime
 	LastAccessTime syscall.Filetime
@@ -26,7 +26,7 @@ type fileStat struct {
 	FileSizeHigh   uint32
 	FileSizeLow    uint32
 
-	// from Win32finddata
+	// from Win32finddata and GetFileInformationByHandleEx
 	ReparseTag uint32
 
 	// what syscall.GetFileType returns

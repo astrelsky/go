@@ -576,12 +576,12 @@ func (ctxt *Link) loadlib() {
 
 	// Plugins a require cgo support to function. Similarly, plugins may require additional
 	// internal linker support on some platforms which may not be implemented.
-	ctxt.canUsePlugins = ctxt.LibraryByPkg["plugin"] != nil && (iscgo || buildcfg.GOOS == "prospero")
+	ctxt.canUsePlugins = ctxt.LibraryByPkg["plugin"] != nil && iscgo
 
 	// We now have enough information to determine the link mode.
 	determineLinkMode(ctxt)
 
-	if ctxt.LinkMode == LinkExternal && !iscgo && buildcfg.GOOS != "prospero" && !(buildcfg.GOOS == "darwin" && ctxt.BuildMode != BuildModePlugin && ctxt.Arch.Family == sys.AMD64) {
+	if ctxt.LinkMode == LinkExternal && !iscgo && !(buildcfg.GOOS == "darwin" && ctxt.BuildMode != BuildModePlugin && ctxt.Arch.Family == sys.AMD64) {
 		// This indicates a user requested -linkmode=external.
 		// The startup code uses an import of runtime/cgo to decide
 		// whether to initialize the TLS.  So give it one. This could
@@ -1471,10 +1471,6 @@ func (ctxt *Link) hostlink() {
 			// resolving a lazy binding. See issue 38824.
 			// Force eager resolution to work around.
 			argv = append(argv, "-Wl,-flat_namespace", "-Wl,-bind_at_load")
-			if linkerFlagSupported(ctxt.Arch, argv[0], "", "-Wl,-ld_classic") {
-				// Force old linker to work around a bug in Apple's new linker.
-				argv = append(argv, "-Wl,-ld_classic")
-			}
 		}
 		if !combineDwarf {
 			argv = append(argv, "-Wl,-S") // suppress STAB (symbolic debugging) symbols

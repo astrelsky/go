@@ -106,9 +106,7 @@ func isFIPSCipherSuite(id uint16) bool {
 		}
 	}
 	switch id {
-	case TLS_AES_128_GCM_SHA256,
-		TLS_AES_256_GCM_SHA384,
-		TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+	case TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 		TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
 		TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
 		TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:
@@ -132,7 +130,7 @@ func isFIPSCipherSuite(id uint16) bool {
 
 func isFIPSCurve(id CurveID) bool {
 	switch id {
-	case CurveP256, CurveP384:
+	case CurveP256, CurveP384, CurveP521:
 		return true
 	case X25519MLKEM768:
 		// Only for the native module.
@@ -160,6 +158,7 @@ func isFIPSSignatureScheme(alg SignatureScheme) bool {
 		PKCS1WithSHA384,
 		ECDSAWithP384AndSHA384,
 		PKCS1WithSHA512,
+		ECDSAWithP521AndSHA512,
 		PSSWithSHA256,
 		PSSWithSHA384,
 		PSSWithSHA512:

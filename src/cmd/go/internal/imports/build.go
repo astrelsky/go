@@ -213,8 +213,8 @@ func matchTag(name string, tags map[string]bool, prefer bool) bool {
 		return tags["illumos"]
 	case "darwin":
 		return tags["ios"]
-	case "freebsd":
-		return tags["prospero"]
+	case "prospero":
+		return tags["freebsd"]
 	case "unix":
 		return syslist.UnixOS[cfg.BuildContext.GOOS]
 	default:

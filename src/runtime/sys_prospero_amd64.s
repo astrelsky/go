@@ -64,17 +64,17 @@ TEXT runtime·sys_umtx_op(SB),NOSPLIT,$0
 	MOVL	AX, ret+32(FP)
 	RET
 
-
-// dummy value used for thread and retval
-GLOBL dummy_retval(SB), (NOPTR), $8
-
-TEXT runtime·thr_new<ABIInternal>(SB),NOSPLIT|NOFRAME,$0
-	LEAQ	dummy_retval(SB), DI
-	MOVQ	CX, SI
-	MOVQ	AX, DX
-	MOVQ	BX, CX
-	MOVQ	runtime·ppthread_create(SB), R12
+TEXT runtime·thr_new(SB),NOSPLIT,$0
+	MOVQ param+0(FP), DI
+	MOVL size+8(FP), SI
+	MOVL $SYS_thr_new, AX
+	MOVQ	runtime·psyscall_addr(SB), R12
 	CALL	R12
+	TESTQ	AX, AX
+	JNS	3(PC)
+	MOVQ	CX, AX
+	NEGQ	AX
+	MOVL	AX, ret+16(FP)
 	RET
 
 TEXT runtime·thr_start(SB),NOSPLIT,$0
@@ -82,7 +82,6 @@ TEXT runtime·thr_start(SB),NOSPLIT,$0
 
 	// set up FS to point at m->tls
 	LEAQ	m_tls(R13), DI
-
 	CALL	runtime·settls(SB)	// smashes DI
 
 	// set up m, g
@@ -95,6 +94,11 @@ TEXT runtime·thr_start(SB),NOSPLIT,$0
 	CALL	runtime·mstart(SB)
 
 	MOVQ 0, AX			// crash (not reached)
+
+
+DATA sleepbuf<>+0x00(SB)/8, $0
+DATA sleepbuf<>+0x08(SB)/8, $0
+GLOBL sleepbuf<>(SB), (NOPTR), $16
 
 // Exit the entire program (like C exit)
 TEXT runtime·exit(SB),NOSPLIT,$-8
@@ -113,10 +117,11 @@ TEXT runtime·exit(SB),NOSPLIT,$-8
 // func exitThread(wait *atomic.uint32)
 TEXT runtime·exitThread(SB),NOSPLIT,$0-8
 	MOVQ	wait+0(FP), AX
-	// We're done using m.
+	// We're done using the stack.
 	MOVL	$0, (AX)
-	LEAQ	dummy_retval(SB), DI
-	MOVQ	runtime·ppthread_exit(SB), R12
+	MOVL	$0, DI		// arg 1 long *state
+	MOVQ	$SYS_thr_exit, AX
+	MOVQ	runtime·psyscall_addr(SB), R12
 	CALL	R12
 	MOVL	$0xf1, 0xf1  // crash
 	JMP	0(PC)
@@ -187,16 +192,20 @@ TEXT runtime·write1(SB),NOSPLIT,$-8
 	MOVL	AX, ret+24(FP)
 	RET
 
-TEXT runtime·thr_self<ABIInternal>(SB),NOSPLIT,$0
+TEXT runtime·thr_self(SB),NOSPLIT,$0-8
 	// thr_self(&0(FP))
-	MOVQ	0x10(FS), AX
+	LEAQ	ret+0(FP), DI	// arg 1
+	MOVQ	$SYS_thr_self, AX
+	MOVQ	runtime·psyscall_addr(SB), R12
+	CALL	R12
 	RET
 
 TEXT runtime·thr_kill(SB),NOSPLIT,$0-16
-	// pthread_kill(tid, sig)
+	// thr_kill(tid, sig)
 	MOVQ	tid+0(FP), DI	// arg 1 id
 	MOVQ	sig+8(FP), SI	// arg 2 sig
-	MOVQ	runtime·ppthread_kill(SB), R12
+	MOVQ	$SYS_thr_kill, AX
+	MOVQ	runtime·psyscall_addr(SB), R12
 	CALL	R12
 	RET
 
@@ -518,24 +527,10 @@ TEXT runtime·usleep(SB),NOSPLIT,$16
 	CALL	R12
 	RET
 
-
 // set tls base to DI
-TEXT runtime·settls(SB),NOSPLIT,$0
+TEXT runtime·settls(SB),NOSPLIT,$8
 	ADDQ	$8, DI	// adjust for ELF: wants to use -8(FS) for g and m
-
-	// preserve the pthread tls
-	MOVQ	0(FS), AX
-	MOVQ	AX, (DI)
-	MOVQ	0x8(FS), AX
-	MOVQ	AX, 0x8(DI)
-	MOVQ	0x10(FS), AX
-	MOVQ	AX, 0x10(DI)
-	MOVQ	0x18(FS), AX
-	MOVQ	AX, 0x18(DI)
-	MOVQ	0x20(FS), AX
-	MOVQ	AX, 0x20(DI)
-
-	PUSHQ	DI
+	MOVQ	DI, 0(SP)
 	MOVQ	SP, SI
 	MOVQ	$AMD64_SET_FSBASE, DI
 	MOVQ	$SYS_sysarch, AX
@@ -544,7 +539,6 @@ TEXT runtime·settls(SB),NOSPLIT,$0
 	TESTQ	AX, AX
 	JNS	2(PC)
 	MOVL	$0xf1, 0xf1  // crash
-	POPQ	DI
 	RET
 
 TEXT runtime·sysctl(SB),NOSPLIT,$0
@@ -662,34 +656,4 @@ TEXT runtime·issetugid(SB),NOSPLIT,$0
 	MOVQ	runtime·psyscall_addr(SB), R12
 	CALL	R12
 	MOVL	AX, ret+0(FP)
-	RET
-
-// void runtime·asmcdeclcall(void *c);
-TEXT runtime·asmcdeclcall(SB),NOSPLIT,$0
-	// asmcgocall will put first argument into DI.
-	PUSHQ	DI			// save for later
-	MOVQ	libcall_fn(DI), AX
-	MOVQ	libcall_args(DI), R11
-	MOVQ	libcall_n(DI), R10
-
-skiperrno1:
-	CMPQ	R11, $0
-	JEQ	skipargs
-	// Load 6 args into correspondent registers.
-	MOVQ	0(R11), DI
-	MOVQ	8(R11), SI
-	MOVQ	16(R11), DX
-	MOVQ	24(R11), CX
-	MOVQ	32(R11), R8
-	MOVQ	40(R11), R9
-skipargs:
-
-	// Call SysV function
-	CALL	AX
-
-	// Return result
-	POPQ	DI
-	MOVQ	AX, libcall_r1(DI)
-
-skiperrno2:
 	RET

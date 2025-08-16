@@ -120,7 +120,12 @@ func archinit(ctxt *ld.Link) {
 			}
 		}
 		if *ld.FlagTextAddr == -1 {
-			*ld.FlagTextAddr = ld.Rnd(1<<22, *ld.FlagRound) + int64(ld.HEADR)
+			if ctxt.HeadType == objabi.Hprospero {
+				*ld.FlagTextAddr = int64(ld.HEADR)
+				//*ld.FlagTextAddr = ld.Rnd(1<<22, *ld.FlagRound) + int64(ld.HEADR)
+			} else {
+				*ld.FlagTextAddr = ld.Rnd(1<<22, *ld.FlagRound) + int64(ld.HEADR)
+			}
 		}
 
 	case objabi.Hwindows: /* PE executable */

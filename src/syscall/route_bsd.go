@@ -35,6 +35,8 @@ func rsaAlignOf(salen int) int {
 		if freebsdConfArch == "amd64" {
 			salign = 8
 		}
+	} else if runtime.GOOS == "prospero" {
+		salign = 8
 	}
 	if salen == 0 {
 		return salign

@@ -113,6 +113,9 @@ const (
 	_EV_EOF       = 0x8000
 	_EVFILT_READ  = -0x1
 	_EVFILT_WRITE = -0x2
+	_EVFILT_USER  = -0xb
+
+	_NOTE_TRIGGER = 0x1000000
 )
 
 type rtprio struct {

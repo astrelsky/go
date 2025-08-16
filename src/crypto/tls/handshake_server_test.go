@@ -89,11 +89,9 @@ func testClientHelloFailure(t *testing.T, serverConfig *Config, m handshakeMessa
 	t.Helper()
 	if len(expectedSubStr) == 0 {
 		if err != nil && err != io.EOF {
-			t.Helper()
 			t.Errorf("Got error: %s; expected to succeed", err)
 		}
 	} else if err == nil || !strings.Contains(err.Error(), expectedSubStr) {
-		t.Helper()
 		t.Errorf("Got error: %v; expected to match substring '%s'", err, expectedSubStr)
 	}
 }
