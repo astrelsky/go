@@ -1447,7 +1447,9 @@ func (ctxt *Link) doelf() {
 	// linking, so that various binutils could correctly calculate
 	// PT_TLS size. See https://golang.org/issue/5200.
 	if !*FlagD || ctxt.IsExternal() {
-		shstrtabAddstring(".tbss")
+		if !ctxt.IsProspero() {
+			shstrtabAddstring(".tbss")
+		}
 	}
 	if ctxt.IsNetbsd() {
 		shstrtabAddstring(".note.netbsd.ident")

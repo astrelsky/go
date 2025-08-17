@@ -2028,10 +2028,14 @@ func (state *dodataState) allocateDataSections(ctxt *Link) {
 		var sect *sym.Section
 		// FIXME: not clear why it is sometimes necessary to suppress .tbss section creation.
 		if (ctxt.IsELF || ctxt.HeadType == objabi.Haix) && (ctxt.LinkMode == LinkExternal || !*FlagD) {
-			sect = addsection(ldr, ctxt.Arch, &Segdata, ".tbss", 06)
-			sect.Align = int32(ctxt.Arch.PtrSize)
-			// FIXME: why does this need to be set to zero?
-			sect.Vaddr = 0
+			// don't create this for prospero
+			// we don't have real tls support for homebrew anyway
+			if !ctxt.IsProspero() {
+				sect = addsection(ldr, ctxt.Arch, &Segdata, ".tbss", 06)
+				sect.Align = int32(ctxt.Arch.PtrSize)
+				// FIXME: why does this need to be set to zero?
+				sect.Vaddr = 0
+			}
 		}
 		state.datsize = 0
 

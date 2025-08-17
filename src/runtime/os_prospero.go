@@ -26,7 +26,7 @@ var psyscall_addr uintptr // name to take addr of syscall_addr
 var homebrew_args PayloadArgs
 
 //go:linkname _rt0_functions runtime._rt0_functions
-var _rt0_functions [7]uintptr // storage for _rt0
+var _rt0_functions [3]uintptr // storage for _rt0
 
 type mOS struct {
 	waitsema uint32 // semaphore for parking on locks

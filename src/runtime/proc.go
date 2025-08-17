@@ -879,7 +879,9 @@ func schedinit() {
 	goargs()
 	goenvs()
 	secure()
-	checkfds()
+	if GOOS != "prospero" {
+		checkfds()
+	}
 	parsedebugvars()
 	gcinit()
 
